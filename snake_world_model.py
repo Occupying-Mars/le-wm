@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import torch
 from torch import nn
 
-from debug_box_world_model import LatentDecoder, LatentDynamics, TinyViTEncoder
+from debug_box_world_model import LatentDynamics, TinyViTEncoder
 
 
 @dataclass
@@ -52,14 +52,11 @@ class SnakePatchWorldModel(nn.Module):
             mlp_ratio=cfg.dynamics_mlp_ratio,
             dropout=cfg.dropout,
         )
-        self.decoder = LatentDecoder(
+        self.decoder = OrderedPatchDecoder(
             latent_dim=cfg.latent_dim,
             image_size=cfg.image_size,
             patch_size=cfg.patch_size,
             hidden_dim=cfg.decoder_dim,
-            depth=cfg.decoder_depth,
-            heads=cfg.decoder_heads,
-            mlp_ratio=cfg.decoder_mlp_ratio,
             dropout=cfg.dropout,
         )
 
@@ -139,3 +136,55 @@ class SnakePatchWorldModel(nn.Module):
 
     def count_parameters(self) -> int:
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
+
+
+class OrderedPatchDecoder(nn.Module):
+    def __init__(
+        self,
+        *,
+        latent_dim: int,
+        image_size: int,
+        patch_size: int,
+        hidden_dim: int,
+        dropout: float,
+    ) -> None:
+        super().__init__()
+        if image_size % patch_size != 0:
+            raise ValueError("image_size must be divisible by patch_size")
+        self.image_size = int(image_size)
+        self.patch_size = int(patch_size)
+        self.grid_size = self.image_size // self.patch_size
+        self.num_patches = self.grid_size * self.grid_size
+        self.patch_dim = self.patch_size * self.patch_size * 3
+        self.net = nn.Sequential(
+            nn.LayerNorm(latent_dim),
+            nn.Linear(latent_dim, hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, self.patch_dim),
+        )
+
+    def forward(self, latents: torch.Tensor) -> torch.Tensor:
+        if latents.dim() != 3:
+            raise ValueError(f"expected patch latents with rank 3, got {tuple(latents.shape)}")
+        batch_size, num_patches, _ = latents.shape
+        if num_patches != self.num_patches:
+            raise ValueError(f"expected {self.num_patches} patches, got {num_patches}")
+        patches = self.net(latents).sigmoid()
+        patches = patches.view(
+            batch_size,
+            self.grid_size,
+            self.grid_size,
+            self.patch_size,
+            self.patch_size,
+            3,
+        )
+        return patches.permute(0, 5, 1, 3, 2, 4).reshape(
+            batch_size,
+            3,
+            self.image_size,
+            self.image_size,
+        )

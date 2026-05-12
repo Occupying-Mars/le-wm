@@ -41,7 +41,7 @@ the default config trains a lewm-style patch-latent model with:
 
 - vit frame encoder
 - causal action-conditioned latent dynamics applied per spatial patch
-- learned patch-query image decoder
+- ordered patch image decoder
 - latent prediction loss
 - predicted-frame reconstruction loss
 - target/history reconstruction losses

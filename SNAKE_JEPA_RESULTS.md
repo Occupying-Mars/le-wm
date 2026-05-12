@@ -42,7 +42,7 @@ model design:
 
 - `TinyViTEncoder.encode_patches(frame)` gives one latent per spatial patch.
 - dynamics predicts the next latent for each patch from that patch's history plus the action history.
-- `LatentDecoder` decodes the full set of predicted patch latents into the next RGB frame.
+- `OrderedPatchDecoder` decodes each ordered patch latent directly back into its image patch.
 - reconstruction loss is foreground-weighted so sparse snake/food pixels are not dominated by black background.
 
 ## smoke verification
@@ -80,7 +80,8 @@ global-latent experiments were not sufficient. the target reconstruction collaps
 
 the current committed direction is patch-latent reconstruction/dynamics, because it gives the decoder enough spatial information for precise board reconstruction while staying within the lewm encoder/dynamics/decoder pattern.
 
+latest observation: a true one-level/one-clip/one-window overfit with ordered patch decoding and `sigreg_weight=0` no longer collapses to pure black/noise, but it still is not exact enough for the win condition. it learns strong grid/border structure and sparse object colors, but not a faithful playable frame. the next blocker is high-fidelity decoding, not dataset discovery or metadata usage.
+
 ## known gap
 
 exact food respawn after eating is not explicitly present in metadata as rng state or food coordinates. the model can learn food position from pixels, but perfect deterministic respawn for arbitrary player actions may be underdetermined from image/action history alone unless the environment rng is encoded in history or extra state is added.
-

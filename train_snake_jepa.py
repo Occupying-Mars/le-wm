@@ -93,6 +93,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="train a lewm-style jepa world model on snake frames")
     parser.add_argument("--config", type=str, default="config/train/snake_jepa.json")
     parser.add_argument("--dataset-root", type=str, default=None)
+    parser.add_argument("--levels", nargs="*", default=None)
     parser.add_argument("--run-name", type=str, default=None)
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--epochs", type=int, default=None)
@@ -101,6 +102,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-windows-per-clip", type=int, default=None)
     parser.add_argument("--max-train-batches", type=int, default=None)
     parser.add_argument("--max-val-batches", type=int, default=None)
+    parser.add_argument("--sigreg-weight", type=float, default=None)
+    parser.add_argument("--recon-foreground-weight", type=float, default=None)
     parser.add_argument("--wandb", action="store_true")
     return parser.parse_args()
 
@@ -112,6 +115,8 @@ def load_config(args: argparse.Namespace) -> dict:
         config.update(json.loads(config_path.read_text()))
     if args.dataset_root is not None:
         config["dataset_root"] = args.dataset_root
+    if args.levels is not None:
+        config["levels"] = args.levels
     if args.run_name is not None:
         config["run_name"] = args.run_name
     if args.device is not None:
@@ -128,6 +133,10 @@ def load_config(args: argparse.Namespace) -> dict:
         config["max_train_batches"] = args.max_train_batches
     if args.max_val_batches is not None:
         config["max_val_batches"] = args.max_val_batches
+    if args.sigreg_weight is not None:
+        config["sigreg_weight"] = args.sigreg_weight
+    if args.recon_foreground_weight is not None:
+        config["recon_foreground_weight"] = args.recon_foreground_weight
     if args.wandb:
         config["wandb_enabled"] = True
     return config
