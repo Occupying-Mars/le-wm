@@ -33,8 +33,10 @@ observed counts:
 new repo files:
 
 - `snake_jepa/snake_data.py`: snake dataset discovery and sliding-window dataloader.
+- `snake_jepa/snake_board.py`: picture-derived board extraction and deterministic board renderer.
 - `snake_jepa/snake_world_model.py`: patch-latent lewm-style world model.
 - `snake_jepa/train_snake_jepa.py`: training script for encoder + dynamics + decoder.
+- `snake_jepa/train_snake_autoencoder.py`: decoder-first reconstruction check.
 - `snake_jepa/infer_snake_jepa.py`: interactive model rollout/play UI.
 - `docs/snake_jepa/TRAIN_SNAKE_JEPA.md`: commands.
 
@@ -43,14 +45,16 @@ model design:
 - `TinyViTEncoder.encode_patches(frame)` gives one latent per spatial patch.
 - dynamics predicts the next latent for each patch from that patch's history plus the action history.
 - `OrderedPatchDecoder` decodes each ordered patch latent directly back into its image patch.
+- `PatchBoardDecoder` decodes predicted latents into a `20x20` board from labels extracted from the png pixels.
 - reconstruction loss is foreground-weighted so sparse snake/food pixels are not dominated by black background.
+- board cross-entropy is now tracked separately from pixel reconstruction.
 
 ## smoke verification
 
 syntax:
 
 ```bash
-uv run python -m py_compile snake_jepa/snake_data.py snake_jepa/train_snake_jepa.py snake_jepa/infer_snake_jepa.py snake_jepa/snake_world_model.py
+uv run python -m py_compile snake_jepa/snake_board.py snake_jepa/snake_data.py snake_jepa/snake_world_model.py snake_jepa/train_snake_jepa.py snake_jepa/train_snake_autoencoder.py
 ```
 
 completed smoke run:
@@ -81,6 +85,21 @@ global-latent experiments were not sufficient. the target reconstruction collaps
 the current committed direction is patch-latent reconstruction/dynamics, because it gives the decoder enough spatial information for precise board reconstruction while staying within the lewm encoder/dynamics/decoder pattern.
 
 latest observation: a true one-level/one-clip/one-window overfit with ordered patch decoding and `sigreg_weight=0` no longer collapses to pure black/noise, but it still is not exact enough for the win condition. it learns strong grid/border structure and sparse object colors, but not a faithful playable frame. the next blocker is high-fidelity decoding, not dataset discovery or metadata usage.
+
+decoder-first check:
+
+- `snake-ae-overfit-one-window`: at `128x128`, autoencoder mae reached `0.0099`, but max pixel error stayed high and preview still had object/grid errors.
+- `snake-ae-overfit-one-window-320`: sharper target frames, but learned pixel reconstruction still spent capacity on fixed grid lines and was not exact.
+
+board-decoder check:
+
+- `snake-jepa-board-overfit-one-window`: one-window JEPA overfit at `320x320` drove `pred_board_loss` from `0.8781` to `0.0011` by epoch 120.
+- pixel `pred_recon_loss` was still `0.2253`, so the current likely path is board decoding + deterministic rendering rather than relying only on raw pixel reconstruction.
+
+wandb:
+
+- project: `https://wandb.ai/krishnapg2315/snake-jepa`
+- tracked smoke run: `https://wandb.ai/krishnapg2315/snake-jepa/runs/snake-jepa-board-wandb-smoke`
 
 ## known gap
 

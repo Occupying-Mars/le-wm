@@ -14,12 +14,17 @@ commits:
 
 - `1752c9a docs: add codebase overview`
 - `45f9b22 feat: add snake jepa training pipeline`
+- `b690baf docs: add snake jepa issue draft`
+- `58f721c fix: use ordered patch decoder for snake jepa`
+- `d8380d6 chore: organize snake jepa files`
 
 new files:
 
 - `snake_jepa/snake_data.py`: discovers `/Users/krishna/Public/ml-experiments/snake-we/datasets/snake_agent`, loads clip metadata and png frames, produces history/next/action batches.
+- `snake_jepa/snake_board.py`: extracts picture-derived board labels from png cells and renders predicted boards.
 - `snake_jepa/snake_world_model.py`: lewm-style patch-latent world model.
 - `snake_jepa/train_snake_jepa.py`: trains encoder + patch dynamics + decoder.
+- `snake_jepa/train_snake_autoencoder.py`: decoder-first autoencoder check.
 - `snake_jepa/infer_snake_jepa.py`: interactive playable rollout UI.
 - `config/train/snake_jepa.json`: default training config.
 - `docs/snake_jepa/TRAIN_SNAKE_JEPA.md`: run commands.
@@ -48,8 +53,10 @@ current direction:
 
 - use `TinyViTEncoder.encode_patches` instead of only cls/global latent
 - predict next latent independently per spatial patch with action-conditioned causal `LatentDynamics`
-- decode the full predicted patch-latent grid with `LatentDecoder`
+- decode the full predicted patch-latent grid with `OrderedPatchDecoder`
+- decode the same predicted patch-latent grid into a `20x20` board with `PatchBoardDecoder`
 - foreground-weight reconstruction loss so snake/food/walls matter more than black background
+- track wandb metrics/previews under `krishnapg2315/snake-jepa`
 
 this keeps the implementation inside the current lewm-style encoder/dynamics/decoder code path.
 
@@ -58,7 +65,7 @@ this keeps the implementation inside the current lewm-style encoder/dynamics/dec
 syntax:
 
 ```bash
-uv run python -m py_compile snake_jepa/snake_data.py snake_jepa/snake_world_model.py snake_jepa/train_snake_jepa.py snake_jepa/infer_snake_jepa.py
+uv run python -m py_compile snake_jepa/snake_board.py snake_jepa/snake_data.py snake_jepa/snake_world_model.py snake_jepa/train_snake_jepa.py snake_jepa/train_snake_autoencoder.py
 ```
 
 patch-model smoke:
@@ -75,29 +82,33 @@ uv run python -m snake_jepa.train_snake_jepa \
   --max-val-batches 1
 ```
 
-output:
+latest board-smoke output:
 
 ```text
 device: cpu
-train samples: 3
+train samples: 1
 val samples: 1
-parameters: 4,849,344
-run dir: runs/snake_jepa/snake-jepa-patch-smoke
-epoch 001 | train 4.2607 | val 4.0884 | pred_recon 1.1235 | latent 0.8942
+parameters: 3,177,028
+run dir: runs/snake_jepa/snake-jepa-board-smoke-v2
+epoch 001 | train 3.9468 | val 3.6924 | pred_recon 0.8432 | pred_board 0.8781 | latent 0.8025
 ```
 
-load/decode smoke produced:
+wandb smoke:
 
 ```text
-pred_latent_shape (1, 64, 96)
-img_shape (1, 3, 128, 128)
+https://wandb.ai/krishnapg2315/snake-jepa/runs/snake-jepa-board-wandb-smoke
 ```
+
+one-window overfit:
+
+- pixel autoencoder still was not exact enough at `128x128` or `320x320`.
+- board decoder reached `pred_board_loss=0.0011` by epoch 120 on `snake-jepa-board-overfit-one-window`.
 
 ## next steps
 
-1. run a longer patch-latent subset job and inspect previews.
-2. if reconstruction is still blurry, pretrain the patch autoencoder before dynamics training.
-3. only then scale to all clips.
+1. route interactive inference through predicted board rendering instead of raw pixel decoder.
+2. train a wandb-tracked subset across multiple clips and inspect predicted-board previews.
+3. add board accuracy metrics, especially snake/food cells, not just cross-entropy.
 4. evaluate whether food respawn is learnable from image/action history alone.
 
 ## caveat
@@ -106,11 +117,10 @@ metadata does not expose rng state or explicit food coordinates. food location i
 
 ## blocked live issue creation
 
-`gh auth status` reports the active github token for `Occupying-Mars` is invalid. after re-auth, create the issue with:
+repo issue creation was attempted, but `Occupying-Mars/le-wm` has issues disabled. if issues are enabled later, create it with:
 
 ```bash
 gh issue create \
   --title "train snake jepa world model to playable rollout quality" \
   --body-file docs/snake_jepa/GITHUB_ISSUE_SNAKE_JEPA.md
 ```
-

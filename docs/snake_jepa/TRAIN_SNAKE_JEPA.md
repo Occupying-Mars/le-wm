@@ -34,16 +34,20 @@ runs/snake_jepa/snake-jepa-smoke/previews/epoch_001.png
 ```bash
 uv run python -m snake_jepa.train_snake_jepa \
   --run-name snake-jepa-full \
-  --device auto
+  --device auto \
+  --wandb
 ```
 
 the default config trains a lewm-style patch-latent model with:
 
+- `320x320` nearest-neighbor resized pixel-art frames
 - vit frame encoder
 - causal action-conditioned latent dynamics applied per spatial patch
 - ordered patch image decoder
+- picture-derived `20x20` board decoder for exact game-state decoding
 - latent prediction loss
 - predicted-frame reconstruction loss
+- predicted-board cross-entropy loss
 - target/history reconstruction losses
 - foreground-weighted reconstruction so snake/food/walls do not get averaged away
 - `SIGReg` latent regularization
@@ -53,6 +57,32 @@ checkpoints are saved to:
 ```text
 runs/snake_jepa/<run-name>/checkpoints/
 ```
+
+## decoder-first check
+
+before spending time on dynamics, prove the snake image encoder/decoder can reconstruct real frames:
+
+```bash
+uv run python -m snake_jepa.train_snake_autoencoder \
+  --run-name snake-ae-overfit \
+  --device auto \
+  --epochs 200 \
+  --image-size 320 \
+  --levels level_1 \
+  --max-clips-per-level 1 \
+  --max-windows-per-clip 1 \
+  --batch-size 1 \
+  --max-train-batches 1 \
+  --max-val-batches 1
+```
+
+this writes only under:
+
+```text
+runs/snake_jepa_autoencoder/<run-name>/
+```
+
+the preview rows are target, reconstruction, and absolute pixel diff.
 
 ## play / rollout from a checkpoint
 

@@ -10,6 +10,7 @@ import torch
 import torch.nn.functional as F
 from PIL import Image, ImageDraw
 
+from snake_jepa.snake_board import render_board
 from snake_jepa.snake_data import build_snake_loaders
 from snake_jepa.snake_world_model import SnakePatchWorldModel, SnakePatchWorldModelConfig
 
@@ -21,7 +22,7 @@ DEFAULT_CONFIG = {
     "device": "auto",
     "run_name": "snake-jepa",
     "seed": 7,
-    "image_size": 128,
+    "image_size": 320,
     "patch_size": 16,
     "history_size": 4,
     "batch_size": 8,
@@ -51,6 +52,9 @@ DEFAULT_CONFIG = {
     "pred_recon_loss_weight": 1.0,
     "target_recon_loss_weight": 0.5,
     "history_recon_loss_weight": 0.1,
+    "pred_board_loss_weight": 1.0,
+    "target_board_loss_weight": 0.5,
+    "history_board_loss_weight": 0.1,
     "recon_foreground_weight": 10.0,
     "recon_foreground_threshold": 0.08,
     "sigreg_weight": 0.03,
@@ -96,6 +100,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--levels", nargs="*", default=None)
     parser.add_argument("--run-name", type=str, default=None)
     parser.add_argument("--device", type=str, default=None)
+    parser.add_argument("--image-size", type=int, default=None)
+    parser.add_argument("--patch-size", type=int, default=None)
     parser.add_argument("--epochs", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=None)
     parser.add_argument("--max-clips-per-level", type=int, default=None)
@@ -121,6 +127,10 @@ def load_config(args: argparse.Namespace) -> dict:
         config["run_name"] = args.run_name
     if args.device is not None:
         config["device"] = args.device
+    if args.image_size is not None:
+        config["image_size"] = args.image_size
+    if args.patch_size is not None:
+        config["patch_size"] = args.patch_size
     if args.epochs is not None:
         config["epochs"] = args.epochs
     if args.batch_size is not None:
@@ -204,6 +214,9 @@ def compute_losses(output: dict[str, torch.Tensor], batch: dict[str, torch.Tenso
     pred_recon_loss = reconstruction_loss(output["pred_next_frame"], batch["next_frame"], config)
     target_recon_loss = reconstruction_loss(output["target_next_recon"], batch["next_frame"], config)
     history_recon_loss = reconstruction_loss(output["history_recon"], batch["history_frames"], config)
+    pred_board_loss = board_loss(output["pred_next_board_logits"], batch["next_board"])
+    target_board_loss = board_loss(output["target_next_board_logits"], batch["next_board"])
+    history_board_loss = board_loss(output["history_board_logits"], batch["history_boards"])
     sigreg_loss = output["sigreg_loss"]
 
     total = (
@@ -211,6 +224,9 @@ def compute_losses(output: dict[str, torch.Tensor], batch: dict[str, torch.Tenso
         + float(config["pred_recon_loss_weight"]) * pred_recon_loss
         + float(config["target_recon_loss_weight"]) * target_recon_loss
         + float(config["history_recon_loss_weight"]) * history_recon_loss
+        + float(config["pred_board_loss_weight"]) * pred_board_loss
+        + float(config["target_board_loss_weight"]) * target_board_loss
+        + float(config["history_board_loss_weight"]) * history_board_loss
         + float(config["sigreg_weight"]) * sigreg_loss
     )
     return {
@@ -219,8 +235,21 @@ def compute_losses(output: dict[str, torch.Tensor], batch: dict[str, torch.Tenso
         "pred_recon_loss": pred_recon_loss,
         "target_recon_loss": target_recon_loss,
         "history_recon_loss": history_recon_loss,
+        "pred_board_loss": pred_board_loss,
+        "target_board_loss": target_board_loss,
+        "history_board_loss": history_board_loss,
         "sigreg_loss": sigreg_loss,
     }
+
+
+def board_loss(logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    if logits.shape[-2:] != target.shape[-2:]:
+        return logits.new_zeros(())
+    if target.dim() == 4:
+        batch_size, history_size, height, width = target.shape
+        logits = logits.reshape(batch_size * history_size, logits.size(2), height, width)
+        target = target.reshape(batch_size * history_size, height, width)
+    return F.cross_entropy(logits, target.long())
 
 
 def sigreg_history_input(history_latents: torch.Tensor) -> torch.Tensor:
@@ -254,18 +283,25 @@ def _to_pil(frame: torch.Tensor) -> Image.Image:
     return Image.fromarray(array)
 
 
-def create_preview_image(history: torch.Tensor, target_next: torch.Tensor, pred_next: torch.Tensor, target_recon: torch.Tensor) -> Image.Image:
+def create_preview_image(
+    history: torch.Tensor,
+    target_next: torch.Tensor,
+    pred_next: torch.Tensor,
+    target_recon: torch.Tensor,
+    pred_board: torch.Tensor,
+) -> Image.Image:
     history_tiles = [_to_pil(frame) for frame in history]
     target_tiles = [_to_pil(target_next) for _ in history_tiles]
     pred_tiles = [_to_pil(pred_next) for _ in history_tiles]
     recon_tiles = [_to_pil(target_recon) for _ in history_tiles]
+    board_tiles = [render_board(pred_board, target_next.shape[-1]) for _ in history_tiles]
 
     tile_w, tile_h = history_tiles[0].size
     columns = len(history_tiles)
-    rows = 4
+    rows = 5
     canvas = Image.new("RGB", (columns * tile_w, rows * tile_h + 28), color=(18, 18, 18))
     draw = ImageDraw.Draw(canvas)
-    labels = ["history", "target next", "pred next", "target recon"]
+    labels = ["history", "target next", "pred next", "target recon", "pred board"]
     for row, label in enumerate(labels):
         draw.text((6, row * tile_h + 6), label, fill=(235, 235, 235))
 
@@ -277,6 +313,8 @@ def create_preview_image(history: torch.Tensor, target_next: torch.Tensor, pred_
         canvas.paste(tile, (idx * tile_w, 2 * tile_h))
     for idx, tile in enumerate(recon_tiles):
         canvas.paste(tile, (idx * tile_w, 3 * tile_h))
+    for idx, tile in enumerate(board_tiles):
+        canvas.paste(tile, (idx * tile_w, 4 * tile_h))
     return canvas
 
 
@@ -290,6 +328,7 @@ def save_preview(model: SnakePatchWorldModel, loader, device: torch.device, outp
         batch["next_frame"][0],
         output["pred_next_frame"][0],
         output["target_next_recon"][0],
+        output["pred_next_board_logits"][0].argmax(dim=0),
     )
     preview_dir = output_dir / "previews"
     preview_dir.mkdir(parents=True, exist_ok=True)
@@ -313,6 +352,9 @@ def run_epoch(
         "pred_recon_loss": 0.0,
         "target_recon_loss": 0.0,
         "history_recon_loss": 0.0,
+        "pred_board_loss": 0.0,
+        "target_board_loss": 0.0,
+        "history_board_loss": 0.0,
         "sigreg_loss": 0.0,
     }
     count = 0
@@ -490,7 +532,8 @@ def main() -> None:
             last_val_metrics = val_metrics
             print(
                 f"epoch {epoch:03d} | train {train_metrics['loss']:.4f} | val {val_metrics['loss']:.4f} | "
-                f"pred_recon {val_metrics['pred_recon_loss']:.4f} | latent {val_metrics['latent_loss']:.4f}"
+                f"pred_recon {val_metrics['pred_recon_loss']:.4f} | "
+                f"pred_board {val_metrics['pred_board_loss']:.4f} | latent {val_metrics['latent_loss']:.4f}"
             )
 
             log_payload = {

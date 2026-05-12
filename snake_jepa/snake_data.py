@@ -7,6 +7,8 @@ import torch.nn.functional as F
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 
+from snake_jepa.snake_board import extract_board
+
 
 @dataclass(frozen=True)
 class SnakeFrame:
@@ -125,7 +127,7 @@ class SnakeFrameDataset(Dataset):
         with Image.open(path) as image:
             image = image.convert("RGB")
             if image.size != (self.image_size, self.image_size):
-                image = image.resize((self.image_size, self.image_size), Image.BILINEAR)
+                image = image.resize((self.image_size, self.image_size), Image.Resampling.NEAREST)
             frame = torch.tensor(bytearray(image.tobytes()), dtype=torch.uint8)
             frame = frame.view(self.image_size, self.image_size, 3).permute(2, 0, 1)
         return frame.float().div(255.0)
@@ -137,7 +139,11 @@ class SnakeFrameDataset(Dataset):
         history_frames = [
             self._load_frame(frame.path) for frame in clip.frames[start:hist_end]
         ]
+        history_boards = [
+            extract_board(frame.path) for frame in clip.frames[start:hist_end]
+        ]
         next_frame = self._load_frame(clip.frames[hist_end].path)
+        next_board = extract_board(clip.frames[hist_end].path)
 
         actions = torch.tensor(
             [frame.action for frame in clip.frames[start:hist_end]],
@@ -145,7 +151,9 @@ class SnakeFrameDataset(Dataset):
         )
         return {
             "history_frames": torch.stack(history_frames, dim=0),
+            "history_boards": torch.stack(history_boards, dim=0),
             "next_frame": next_frame,
+            "next_board": next_board,
             "actions": actions,
             "actions_one_hot": F.one_hot(actions, num_classes=4).float(),
         }

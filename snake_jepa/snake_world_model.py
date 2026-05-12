@@ -4,6 +4,7 @@ import torch
 from torch import nn
 
 from debug_box_world_model import LatentDynamics, TinyViTEncoder
+from snake_jepa.snake_board import NUM_BOARD_CLASSES
 
 
 @dataclass
@@ -59,6 +60,14 @@ class SnakePatchWorldModel(nn.Module):
             hidden_dim=cfg.decoder_dim,
             dropout=cfg.dropout,
         )
+        self.board_decoder = PatchBoardDecoder(
+            latent_dim=cfg.latent_dim,
+            image_size=cfg.image_size,
+            patch_size=cfg.patch_size,
+            hidden_dim=cfg.decoder_dim,
+            num_classes=NUM_BOARD_CLASSES,
+            dropout=cfg.dropout,
+        )
 
     @property
     def num_patches(self) -> int:
@@ -111,6 +120,12 @@ class SnakePatchWorldModel(nn.Module):
         decoded = self.decoder(flat)
         return decoded.reshape(batch_size, history_size, *decoded.shape[1:])
 
+    def decode_board_sequence(self, latents: torch.Tensor) -> torch.Tensor:
+        batch_size, history_size, num_patches, latent_dim = latents.shape
+        flat = latents.reshape(batch_size * history_size, num_patches, latent_dim)
+        decoded = self.board_decoder(flat)
+        return decoded.reshape(batch_size, history_size, *decoded.shape[1:])
+
     def forward(
         self,
         history_frames: torch.Tensor,
@@ -122,16 +137,22 @@ class SnakePatchWorldModel(nn.Module):
         pred_next_latent = self.predict_patch_latents(history_latents, actions_one_hot)
 
         history_recon = self.decode_sequence(history_latents)
+        history_board_logits = self.decode_board_sequence(history_latents)
         pred_next_frame = self.decoder(pred_next_latent)
         target_next_recon = self.decoder(target_next_latent)
+        pred_next_board_logits = self.board_decoder(pred_next_latent)
+        target_next_board_logits = self.board_decoder(target_next_latent)
 
         return {
             "history_latents": history_latents,
             "target_next_latent": target_next_latent,
             "pred_next_latent": pred_next_latent,
             "history_recon": history_recon,
+            "history_board_logits": history_board_logits,
             "pred_next_frame": pred_next_frame,
             "target_next_recon": target_next_recon,
+            "pred_next_board_logits": pred_next_board_logits,
+            "target_next_board_logits": target_next_board_logits,
         }
 
     def count_parameters(self) -> int:
@@ -188,3 +209,38 @@ class OrderedPatchDecoder(nn.Module):
             self.image_size,
             self.image_size,
         )
+
+
+class PatchBoardDecoder(nn.Module):
+    def __init__(
+        self,
+        *,
+        latent_dim: int,
+        image_size: int,
+        patch_size: int,
+        hidden_dim: int,
+        num_classes: int,
+        dropout: float,
+    ) -> None:
+        super().__init__()
+        if image_size % patch_size != 0:
+            raise ValueError("image_size must be divisible by patch_size")
+        self.grid_size = image_size // patch_size
+        self.num_patches = self.grid_size * self.grid_size
+        self.num_classes = int(num_classes)
+        self.net = nn.Sequential(
+            nn.LayerNorm(latent_dim),
+            nn.Linear(latent_dim, hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, self.num_classes),
+        )
+
+    def forward(self, latents: torch.Tensor) -> torch.Tensor:
+        if latents.dim() != 3:
+            raise ValueError(f"expected patch latents with rank 3, got {tuple(latents.shape)}")
+        batch_size, num_patches, _ = latents.shape
+        if num_patches != self.num_patches:
+            raise ValueError(f"expected {self.num_patches} patches, got {num_patches}")
+        logits = self.net(latents)
+        return logits.reshape(batch_size, self.grid_size, self.grid_size, self.num_classes).permute(0, 3, 1, 2)
