@@ -37,7 +37,7 @@ new repo files:
 - `snake_jepa/snake_world_model.py`: patch-latent lewm-style world model.
 - `snake_jepa/train_snake_jepa.py`: training script for encoder + dynamics + decoder.
 - `snake_jepa/train_snake_autoencoder.py`: decoder-first reconstruction check.
-- `snake_jepa/infer_snake_jepa.py`: interactive model rollout/play UI.
+- `snake_jepa/infer_snake_jepa.py`: interactive model rollout/play UI with board or pixel decode modes.
 - `docs/snake_jepa/TRAIN_SNAKE_JEPA.md`: commands.
 
 model design:
@@ -95,6 +95,7 @@ board-decoder check:
 
 - `snake-jepa-board-overfit-one-window`: one-window JEPA overfit at `320x320` drove `pred_board_loss` from `0.8781` to `0.0011` by epoch 120.
 - pixel `pred_recon_loss` was still `0.2253`, so the current likely path is board decoding + deterministic rendering rather than relying only on raw pixel reconstruction.
+- inference now defaults to `--decode-mode board`, which uses learned latent dynamics + learned board decoder + deterministic rendering.
 
 wandb:
 

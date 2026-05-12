@@ -89,7 +89,8 @@ the preview rows are target, reconstruction, and absolute pixel diff.
 ```bash
 uv run python -m snake_jepa.infer_snake_jepa \
   --run-name snake-jepa-full \
-  --checkpoint best
+  --checkpoint best \
+  --decode-mode board
 ```
 
 controls:
@@ -98,4 +99,4 @@ controls:
 - `r`: reset to the same seed clip
 - `n`: seed from a different real dataset clip
 
-the ui starts from real context frames, then rolls forward entirely through the model decoder.
+the ui starts from real context frames, then rolls forward through learned latent dynamics. `--decode-mode board` uses the learned board decoder plus deterministic rendering; `--decode-mode pixel` uses the raw image decoder.

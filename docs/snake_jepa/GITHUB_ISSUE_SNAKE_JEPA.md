@@ -25,7 +25,7 @@ new files:
 - `snake_jepa/snake_world_model.py`: lewm-style patch-latent world model.
 - `snake_jepa/train_snake_jepa.py`: trains encoder + patch dynamics + decoder.
 - `snake_jepa/train_snake_autoencoder.py`: decoder-first autoencoder check.
-- `snake_jepa/infer_snake_jepa.py`: interactive playable rollout UI.
+- `snake_jepa/infer_snake_jepa.py`: interactive playable rollout UI with board or pixel decode modes.
 - `config/train/snake_jepa.json`: default training config.
 - `docs/snake_jepa/TRAIN_SNAKE_JEPA.md`: run commands.
 - `docs/snake_jepa/SNAKE_JEPA_RESULTS.md`: current results and caveats.
@@ -106,9 +106,9 @@ one-window overfit:
 
 ## next steps
 
-1. route interactive inference through predicted board rendering instead of raw pixel decoder.
-2. train a wandb-tracked subset across multiple clips and inspect predicted-board previews.
-3. add board accuracy metrics, especially snake/food cells, not just cross-entropy.
+1. train a wandb-tracked subset across multiple clips and inspect predicted-board previews.
+2. add board accuracy metrics, especially snake/food cells, not just cross-entropy.
+3. run interactive inference with `--decode-mode board`.
 4. evaluate whether food respawn is learnable from image/action history alone.
 
 ## caveat

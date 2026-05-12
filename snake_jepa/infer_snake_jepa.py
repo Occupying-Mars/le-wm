@@ -11,6 +11,7 @@ import torch.nn.functional as F
 from matplotlib.widgets import Button
 from PIL import Image
 
+from snake_jepa.snake_board import render_board
 from snake_jepa.snake_data import SnakeClip, discover_snake_clips
 from snake_jepa.snake_world_model import SnakePatchWorldModel, SnakePatchWorldModelConfig
 
@@ -37,6 +38,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--levels", nargs="*", default=["level_1", "level_2", "level_3", "random_levels"])
     parser.add_argument("--sample-index", type=int, default=-1)
     parser.add_argument("--device", type=str, default="auto")
+    parser.add_argument("--decode-mode", choices=["board", "pixel"], default="board")
     return parser.parse_args()
 
 
@@ -81,9 +83,16 @@ def load_frame(path: Path, image_size: int) -> torch.Tensor:
     with Image.open(path) as image:
         image = image.convert("RGB")
         if image.size != (image_size, image_size):
-            image = image.resize((image_size, image_size), Image.BILINEAR)
+            image = image.resize((image_size, image_size), Image.Resampling.NEAREST)
         frame = torch.tensor(bytearray(image.tobytes()), dtype=torch.uint8)
         frame = frame.view(image_size, image_size, 3).permute(2, 0, 1)
+    return frame.float().div(255.0)
+
+
+def pil_to_tensor(image: Image.Image) -> torch.Tensor:
+    image = image.convert("RGB")
+    frame = torch.tensor(bytearray(image.tobytes()), dtype=torch.uint8)
+    frame = frame.view(image.height, image.width, 3).permute(2, 0, 1)
     return frame.float().div(255.0)
 
 
@@ -99,10 +108,12 @@ class SnakeWorldUI:
         model: SnakePatchWorldModel,
         device: torch.device,
         sample_index: int,
+        decode_mode: str,
     ) -> None:
         self.clips = clips
         self.model = model
         self.device = device
+        self.decode_mode = decode_mode
         self.sample_index = sample_index if sample_index >= 0 else random.randint(0, len(clips) - 1)
         self.selected_action = 1
         self.step_count = 0
@@ -153,7 +164,11 @@ class SnakeWorldUI:
         action_tensor = torch.tensor(actions, dtype=torch.long, device=self.device).unsqueeze(0)
         action_one_hot = F.one_hot(action_tensor, num_classes=4).float()
         output = self.model.predict_next(history, action_one_hot)
-        return self.model.decoder(output["pred_next_latent"])[0].cpu()
+        if self.decode_mode == "pixel":
+            return self.model.decoder(output["pred_next_latent"])[0].cpu()
+        board_logits = self.model.board_decoder(output["pred_next_latent"])
+        board = board_logits[0].argmax(dim=0)
+        return pil_to_tensor(render_board(board, int(self.model.cfg.image_size)))
 
     def step(self, action: int) -> None:
         self.selected_action = int(action)
@@ -197,7 +212,7 @@ class SnakeWorldUI:
         clip = self.clips[self.sample_index % len(self.clips)]
         self.fig.suptitle(
             f"seed {clip.level_kind}/{clip.clip_id} | model steps {self.step_count} | "
-            f"last action {ACTION_NAMES[self.selected_action]}",
+            f"last action {ACTION_NAMES[self.selected_action]} | decode {self.decode_mode}",
             fontsize=11,
         )
         self.fig.canvas.draw_idle()
@@ -211,7 +226,7 @@ def main() -> None:
     clips = discover_snake_clips(args.dataset_root, levels=list(args.levels), max_clips_per_level=0)
     print(f"[snake-jepa] clips: {len(clips)}")
     print("[snake-jepa] controls: arrow keys or wasd, r reset, n new seed")
-    SnakeWorldUI(clips, model, device, args.sample_index)
+    SnakeWorldUI(clips, model, device, args.sample_index, args.decode_mode)
     plt.show()
 
 
