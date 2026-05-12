@@ -58,6 +58,17 @@ checkpoints are saved to:
 runs/snake_jepa/<run-name>/checkpoints/
 ```
 
+validation previews are saved as both static png strips and animated gifs:
+
+```text
+runs/snake_jepa/<run-name>/previews/epoch_*.png
+runs/snake_jepa/<run-name>/gifs/epoch_*_input.gif
+runs/snake_jepa/<run-name>/gifs/epoch_*_output.gif
+runs/snake_jepa/<run-name>/gifs/epoch_*_compare.gif
+```
+
+`epoch_*_compare.gif` is also logged to wandb for runs started after this change.
+
 ## decoder-first check
 
 before spending time on dynamics, prove the snake image encoder/decoder can reconstruct real frames:

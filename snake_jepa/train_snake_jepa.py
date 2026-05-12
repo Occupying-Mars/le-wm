@@ -313,6 +313,32 @@ def _to_pil(frame: torch.Tensor) -> Image.Image:
     return Image.fromarray(array)
 
 
+def _save_gif(frames: list[Image.Image], path: Path, *, duration_ms: int = 350) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rgb_frames = [frame.convert("RGB") for frame in frames]
+    rgb_frames[0].save(
+        path,
+        save_all=True,
+        append_images=rgb_frames[1:],
+        duration=duration_ms,
+        loop=0,
+    )
+    return path
+
+
+def create_side_by_side_frame(left: Image.Image, right: Image.Image) -> Image.Image:
+    left = left.convert("RGB")
+    right = right.convert("RGB")
+    width, height = left.size
+    canvas = Image.new("RGB", (width * 2, height + 24), color=(18, 18, 18))
+    draw = ImageDraw.Draw(canvas)
+    draw.text((6, 5), "target/input", fill=(235, 235, 235))
+    draw.text((width + 6, 5), "model output", fill=(235, 235, 235))
+    canvas.paste(left, (0, 24))
+    canvas.paste(right, (width, 24))
+    return canvas
+
+
 def create_preview_image(
     history: torch.Tensor,
     target_next: torch.Tensor,
@@ -349,21 +375,43 @@ def create_preview_image(
 
 
 @torch.no_grad()
-def save_preview(model: SnakePatchWorldModel, loader, device: torch.device, output_dir: Path, epoch: int) -> Image.Image:
+def save_preview(
+    model: SnakePatchWorldModel,
+    loader,
+    device: torch.device,
+    output_dir: Path,
+    epoch: int,
+) -> tuple[Image.Image, dict[str, Path]]:
     model.eval()
     batch = move_batch(next(iter(loader)), device)
     output = model(batch["history_frames"], batch["actions_one_hot"], batch["next_frame"])
+    history_frames = batch["history_frames"][0]
+    target_next = batch["next_frame"][0]
+    pred_next = output["pred_next_frame"][0]
     canvas = create_preview_image(
-        batch["history_frames"][0],
-        batch["next_frame"][0],
-        output["pred_next_frame"][0],
+        history_frames,
+        target_next,
+        pred_next,
         output["target_next_recon"][0],
         output["pred_next_board_logits"][0].argmax(dim=0),
     )
     preview_dir = output_dir / "previews"
     preview_dir.mkdir(parents=True, exist_ok=True)
     canvas.save(preview_dir / f"epoch_{epoch:03d}.png")
-    return canvas
+
+    input_frames = [_to_pil(frame) for frame in history_frames] + [_to_pil(target_next)]
+    output_frames = [_to_pil(frame) for frame in history_frames] + [_to_pil(pred_next)]
+    compare_frames = [
+        create_side_by_side_frame(left, right)
+        for left, right in zip(input_frames, output_frames)
+    ]
+    gif_dir = output_dir / "gifs"
+    gif_paths = {
+        "input": _save_gif(input_frames, gif_dir / f"epoch_{epoch:03d}_input.gif"),
+        "output": _save_gif(output_frames, gif_dir / f"epoch_{epoch:03d}_output.gif"),
+        "compare": _save_gif(compare_frames, gif_dir / f"epoch_{epoch:03d}_compare.gif"),
+    }
+    return canvas, gif_paths
 
 
 def run_epoch(
@@ -588,11 +636,17 @@ def main() -> None:
             }
 
             if epoch % int(config["preview_every"]) == 0:
-                preview_image = save_preview(model, val_loader, device, run_dir, epoch)
+                preview_image, gif_paths = save_preview(model, val_loader, device, run_dir, epoch)
                 if wandb_run is not None:
                     import wandb
 
                     log_payload["val/example"] = wandb.Image(preview_image, caption=f"epoch {epoch}")
+                    log_payload["val/input_output_gif"] = wandb.Video(
+                        str(gif_paths["compare"]),
+                        fps=3,
+                        format="gif",
+                        caption=f"epoch {epoch}",
+                    )
 
             if wandb_run is not None:
                 wandb_run.log(log_payload, step=epoch)
