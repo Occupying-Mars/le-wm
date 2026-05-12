@@ -122,6 +122,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-train-batches", type=int, default=None)
     parser.add_argument("--max-val-batches", type=int, default=None)
     parser.add_argument("--sigreg-weight", type=float, default=None)
+    parser.add_argument("--latent-loss-weight", type=float, default=None)
+    parser.add_argument("--pred-recon-loss-weight", type=float, default=None)
+    parser.add_argument("--target-recon-loss-weight", type=float, default=None)
+    parser.add_argument("--history-recon-loss-weight", type=float, default=None)
     parser.add_argument("--recon-foreground-weight", type=float, default=None)
     parser.add_argument("--recon-hard-weight", type=float, default=None)
     parser.add_argument("--recon-hard-fraction", type=float, default=None)
@@ -176,6 +180,14 @@ def load_config(args: argparse.Namespace) -> dict:
         config["max_val_batches"] = args.max_val_batches
     if args.sigreg_weight is not None:
         config["sigreg_weight"] = args.sigreg_weight
+    if args.latent_loss_weight is not None:
+        config["latent_loss_weight"] = args.latent_loss_weight
+    if args.pred_recon_loss_weight is not None:
+        config["pred_recon_loss_weight"] = args.pred_recon_loss_weight
+    if args.target_recon_loss_weight is not None:
+        config["target_recon_loss_weight"] = args.target_recon_loss_weight
+    if args.history_recon_loss_weight is not None:
+        config["history_recon_loss_weight"] = args.history_recon_loss_weight
     if args.recon_foreground_weight is not None:
         config["recon_foreground_weight"] = args.recon_foreground_weight
     if args.recon_hard_weight is not None:
