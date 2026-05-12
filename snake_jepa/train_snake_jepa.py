@@ -392,18 +392,24 @@ def compute_losses(output: dict[str, torch.Tensor], batch: dict[str, torch.Tenso
     pred_recon_loss = reconstruction_loss(output["pred_next_frame"], batch["next_frame"], config)
     target_recon_loss = reconstruction_loss(output["target_next_recon"], batch["next_frame"], config)
     history_recon_loss = reconstruction_loss(output["history_recon"], batch["history_frames"], config)
-    pred_change_loss = temporal_change_loss(
-        output["pred_next_frame"],
-        batch["next_frame"],
-        batch["history_frames"][:, -1],
-        config,
-    )
-    pred_static_loss = temporal_static_loss(
-        output["pred_next_frame"],
-        batch["next_frame"],
-        batch["history_frames"][:, -1],
-        config,
-    )
+    if float(config.get("pred_change_loss_weight", 0.0)) > 0.0:
+        pred_change_loss = temporal_change_loss(
+            output["pred_next_frame"],
+            batch["next_frame"],
+            batch["history_frames"][:, -1],
+            config,
+        )
+    else:
+        pred_change_loss = pred_recon_loss.new_zeros(())
+    if float(config.get("pred_static_loss_weight", 0.0)) > 0.0:
+        pred_static_loss = temporal_static_loss(
+            output["pred_next_frame"],
+            batch["next_frame"],
+            batch["history_frames"][:, -1],
+            config,
+        )
+    else:
+        pred_static_loss = pred_recon_loss.new_zeros(())
     if board_diagnostics_enabled(config):
         pred_board_loss = board_loss(output["pred_next_board_logits"], batch["next_board"], config)
         target_board_loss = board_loss(output["target_next_board_logits"], batch["next_board"], config)
