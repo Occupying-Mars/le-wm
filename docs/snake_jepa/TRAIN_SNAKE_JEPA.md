@@ -99,4 +99,4 @@ controls:
 - `r`: reset to the same seed clip
 - `n`: seed from a different real dataset clip
 
-the ui starts from real context frames, then rolls forward through learned latent dynamics. `--decode-mode board` uses the learned board decoder plus deterministic rendering; `--decode-mode pixel` uses the raw image decoder.
+the ui starts from real context frames, then rolls forward through learned latent dynamics. `--decode-mode board` keeps the rollout in predicted-latent space and renders through the learned board decoder; `--decode-mode pixel` uses the raw image decoder.

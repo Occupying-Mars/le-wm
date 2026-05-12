@@ -29,17 +29,22 @@ def extract_board(path: str | Path) -> torch.Tensor:
 
 
 def classify_cell(patch: Image.Image) -> int:
-    pixels = list(patch.getdata())
-    if any(r > 180 and g < 80 and b > 160 for r, g, b in pixels):
+    all_pixels = list(patch.getdata())
+    if any(r > 180 and g < 100 and b > 120 for r, g, b in all_pixels):
         return FOOD
 
+    width, height = patch.size
+    margin_x = max(1, width // 4)
+    margin_y = max(1, height // 4)
+    center_patch = patch.crop((margin_x, margin_y, width - margin_x, height - margin_y))
+    pixels = list(center_patch.getdata())
     center = pixels[len(pixels) // 2]
     r, g, b = center
     if abs(r - 85) < 25 and abs(g - 85) < 25 and abs(b - 85) < 25:
         return OBSTACLE
     if max(center) < 35:
         return EMPTY
-    if g > 120 or r > 120:
+    if g > 120 or (r > 120 and b < 120):
         return SNAKE
     return EMPTY
 

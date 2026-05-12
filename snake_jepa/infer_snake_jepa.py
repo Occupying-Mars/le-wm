@@ -119,6 +119,7 @@ class SnakeWorldUI:
         self.step_count = 0
 
         self.history_frames: list[torch.Tensor] = []
+        self.history_latents: list[torch.Tensor] = []
         self.action_history: list[int] = []
         self.seed_context()
 
@@ -137,6 +138,10 @@ class SnakeWorldUI:
         self.history_frames = [
             load_frame(frame.path, image_size) for frame in clip.frames[:history_size]
         ]
+        with torch.no_grad():
+            history = torch.stack(self.history_frames, dim=0).unsqueeze(0).to(self.device)
+            latents = self.model.encode_history(history)[0].cpu()
+        self.history_latents = [latent for latent in latents]
         self.action_history = [frame.action for frame in clip.frames[:history_size]]
         self.step_count = 0
 
@@ -157,23 +162,27 @@ class SnakeWorldUI:
             self.button_refs.append(button)
 
     @torch.no_grad()
-    def predict_next(self, action: int) -> torch.Tensor:
+    def predict_next(self, action: int) -> tuple[torch.Tensor, torch.Tensor | None]:
         actions = list(self.action_history[-int(self.model.cfg.history_size):])
         actions[-1] = action
-        history = torch.stack(self.history_frames[-int(self.model.cfg.history_size):], dim=0).unsqueeze(0).to(self.device)
         action_tensor = torch.tensor(actions, dtype=torch.long, device=self.device).unsqueeze(0)
         action_one_hot = F.one_hot(action_tensor, num_classes=4).float()
-        output = self.model.predict_next(history, action_one_hot)
         if self.decode_mode == "pixel":
-            return self.model.decoder(output["pred_next_latent"])[0].cpu()
-        board_logits = self.model.board_decoder(output["pred_next_latent"])
+            history = torch.stack(self.history_frames[-int(self.model.cfg.history_size):], dim=0).unsqueeze(0).to(self.device)
+            output = self.model.predict_next(history, action_one_hot)
+            return self.model.decoder(output["pred_next_latent"])[0].cpu(), None
+        history_latents = torch.stack(self.history_latents[-int(self.model.cfg.history_size):], dim=0).unsqueeze(0).to(self.device)
+        pred_latent = self.model.predict_patch_latents(history_latents, action_one_hot)
+        board_logits = self.model.board_decoder(pred_latent)
         board = board_logits[0].argmax(dim=0)
-        return pil_to_tensor(render_board(board, int(self.model.cfg.image_size)))
+        return pil_to_tensor(render_board(board, int(self.model.cfg.image_size))), pred_latent[0].cpu()
 
     def step(self, action: int) -> None:
         self.selected_action = int(action)
-        pred = self.predict_next(self.selected_action)
+        pred, pred_latent = self.predict_next(self.selected_action)
         self.history_frames.append(pred)
+        if pred_latent is not None:
+            self.history_latents.append(pred_latent)
         self.action_history.append(self.selected_action)
         self.step_count += 1
         self.render()

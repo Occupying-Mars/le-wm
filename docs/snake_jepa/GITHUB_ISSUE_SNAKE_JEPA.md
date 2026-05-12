@@ -102,7 +102,8 @@ https://wandb.ai/krishnapg2315/snake-jepa/runs/snake-jepa-board-wandb-smoke
 one-window overfit:
 
 - pixel autoencoder still was not exact enough at `128x128` or `320x320`.
-- board decoder reached `pred_board_loss=0.0011` by epoch 120 on `snake-jepa-board-overfit-one-window`.
+- board decoder reached `pred_board_loss=0.0011` by epoch 120 on `snake-jepa-board-overfit-one-window`, but that run used an early board-label extractor that over-counted grid lines as snake cells.
+- current extractor classifies cells from the center area and uses full-cell magenta detection for food; corrected-label runs supersede earlier board metrics.
 - trainer now logs board accuracy, non-empty accuracy, snake-cell accuracy, and food-cell accuracy.
 
 ## next steps

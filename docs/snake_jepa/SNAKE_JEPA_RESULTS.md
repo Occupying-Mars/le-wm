@@ -96,7 +96,8 @@ board-decoder check:
 
 - `snake-jepa-board-overfit-one-window`: one-window JEPA overfit at `320x320` drove `pred_board_loss` from `0.8781` to `0.0011` by epoch 120.
 - pixel `pred_recon_loss` was still `0.2253`, so the current likely path is board decoding + deterministic rendering rather than relying only on raw pixel reconstruction.
-- inference now defaults to `--decode-mode board`, which uses learned latent dynamics + learned board decoder + deterministic rendering.
+- inference now defaults to `--decode-mode board`, which rolls forward predicted latents directly, then uses learned board decoder + deterministic rendering.
+- label fix: the first board extractor over-counted cyan grid lines as snake cells. corrected extraction now classifies from the cell center area, with full-cell magenta detection for food. the pre-fix board run should be treated as invalid for final quality.
 
 wandb:
 
