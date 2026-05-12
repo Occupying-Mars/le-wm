@@ -245,6 +245,8 @@ class PixelDynamics(nn.Module):
         )
         self.blocks = nn.Sequential(*[PixelResidualBlock(hidden_dim) for _ in range(int(depth))])
         self.out_proj = nn.Conv2d(hidden_dim, 3, kernel_size=3, padding=1)
+        nn.init.zeros_(self.out_proj.weight)
+        nn.init.zeros_(self.out_proj.bias)
 
     def forward(self, history_frames: torch.Tensor, next_actions_one_hot: torch.Tensor) -> torch.Tensor:
         if history_frames.dim() != 5:
@@ -254,7 +256,7 @@ class PixelDynamics(nn.Module):
             raise ValueError(f"expected RGB history frames, got {channels} channels")
         actions = next_actions_one_hot[:, :, None, None].expand(batch_size, next_actions_one_hot.size(1), height, width)
         x = torch.cat([history_frames.reshape(batch_size, history_size * channels, height, width), actions], dim=1)
-        delta = self.out_proj(self.blocks(self.in_proj(x)))
+        delta = torch.tanh(self.out_proj(self.blocks(self.in_proj(x))))
         last_frame = history_frames[:, -1]
         return (last_frame + delta).clamp(0.0, 1.0)
 
