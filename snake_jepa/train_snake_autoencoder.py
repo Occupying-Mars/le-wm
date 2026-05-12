@@ -49,6 +49,8 @@ DEFAULT_CONFIG = {
     "dropout": 0.0,
     "recon_foreground_weight": 10.0,
     "recon_foreground_threshold": 0.08,
+    "recon_batch_saliency_weight": 0.0,
+    "recon_batch_saliency_threshold": 0.05,
     "grad_clip_norm": 1.0,
     "preview_every": 1,
     "checkpoint_every": 5,
@@ -72,6 +74,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-train-batches", type=int, default=None)
     parser.add_argument("--max-val-batches", type=int, default=None)
     parser.add_argument("--recon-foreground-weight", type=float, default=None)
+    parser.add_argument("--recon-batch-saliency-weight", type=float, default=None)
+    parser.add_argument("--recon-batch-saliency-threshold", type=float, default=None)
     return parser.parse_args()
 
 
@@ -91,6 +95,8 @@ def load_config(args: argparse.Namespace) -> dict:
         "max_train_batches",
         "max_val_batches",
         "recon_foreground_weight",
+        "recon_batch_saliency_weight",
+        "recon_batch_saliency_threshold",
     ):
         value = getattr(args, key)
         if value is not None:

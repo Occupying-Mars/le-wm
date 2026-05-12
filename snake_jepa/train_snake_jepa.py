@@ -59,6 +59,8 @@ DEFAULT_CONFIG = {
     "recon_foreground_threshold": 0.08,
     "recon_hard_weight": 0.0,
     "recon_hard_fraction": 0.0,
+    "recon_batch_saliency_weight": 0.0,
+    "recon_batch_saliency_threshold": 0.05,
     "pred_change_loss_weight": 0.0,
     "pred_change_threshold": 0.02,
     "sigreg_weight": 0.03,
@@ -120,6 +122,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--recon-foreground-weight", type=float, default=None)
     parser.add_argument("--recon-hard-weight", type=float, default=None)
     parser.add_argument("--recon-hard-fraction", type=float, default=None)
+    parser.add_argument("--recon-batch-saliency-weight", type=float, default=None)
+    parser.add_argument("--recon-batch-saliency-threshold", type=float, default=None)
     parser.add_argument("--pred-change-loss-weight", type=float, default=None)
     parser.add_argument("--pred-change-threshold", type=float, default=None)
     parser.add_argument("--pred-board-loss-weight", type=float, default=None)
@@ -172,6 +176,10 @@ def load_config(args: argparse.Namespace) -> dict:
         config["recon_hard_weight"] = args.recon_hard_weight
     if args.recon_hard_fraction is not None:
         config["recon_hard_fraction"] = args.recon_hard_fraction
+    if args.recon_batch_saliency_weight is not None:
+        config["recon_batch_saliency_weight"] = args.recon_batch_saliency_weight
+    if args.recon_batch_saliency_threshold is not None:
+        config["recon_batch_saliency_threshold"] = args.recon_batch_saliency_threshold
     if args.pred_change_loss_weight is not None:
         config["pred_change_loss_weight"] = args.pred_change_loss_weight
     if args.pred_change_threshold is not None:
@@ -243,6 +251,15 @@ def reconstruction_loss(pred: torch.Tensor, target: torch.Tensor, config: dict) 
     foreground_weight = float(config.get("recon_foreground_weight", 0.0))
     mask = (target.amax(dim=-3, keepdim=True) > threshold).float()
     weight = 1.0 + foreground_weight * mask
+
+    saliency_weight = float(config.get("recon_batch_saliency_weight", 0.0))
+    saliency_threshold = float(config.get("recon_batch_saliency_threshold", 0.05))
+    if saliency_weight > 0.0:
+        flat_target = target.reshape(-1, *target.shape[-3:])
+        saliency = (flat_target - flat_target.mean(dim=0, keepdim=True)).abs().amax(dim=-3, keepdim=True)
+        saliency = saliency.gt(saliency_threshold).float().reshape(*target.shape[:-3], 1, *target.shape[-2:])
+        weight = weight + saliency_weight * saliency
+
     l1 = ((pred - target).abs() * weight).mean()
     mse = ((pred - target).square() * weight).mean()
     loss = l1 + mse
