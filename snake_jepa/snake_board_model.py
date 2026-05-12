@@ -49,15 +49,22 @@ class SnakeBoardDynamics(nn.Module):
         self.out_proj = nn.Conv2d(cfg.hidden_dim, cfg.num_classes, kernel_size=1)
 
     def forward(self, history_boards: torch.Tensor, actions_one_hot: torch.Tensor) -> torch.Tensor:
-        if history_boards.dim() != 3 and history_boards.dim() != 4:
-            raise ValueError(f"expected board history rank 3 or 4, got {tuple(history_boards.shape)}")
+        if history_boards.dim() not in {3, 4, 5}:
+            raise ValueError(f"expected board history rank 3, 4, or 5, got {tuple(history_boards.shape)}")
         if history_boards.dim() == 3:
             history_boards = history_boards.unsqueeze(0)
-        batch_size, history_size, height, width = history_boards.shape
+        batch_size, history_size = history_boards.shape[:2]
         if history_size != self.cfg.history_size:
             raise ValueError(f"expected history size {self.cfg.history_size}, got {history_size}")
-        board_one_hot = F.one_hot(history_boards.long(), num_classes=self.cfg.num_classes)
-        board_one_hot = board_one_hot.permute(0, 1, 4, 2, 3).float()
+        if history_boards.dim() == 5:
+            if history_boards.size(2) != self.cfg.num_classes:
+                raise ValueError(f"expected {self.cfg.num_classes} class channels, got {history_boards.size(2)}")
+            board_one_hot = history_boards.float()
+            height, width = history_boards.shape[-2:]
+        else:
+            height, width = history_boards.shape[-2:]
+            board_one_hot = F.one_hot(history_boards.long(), num_classes=self.cfg.num_classes)
+            board_one_hot = board_one_hot.permute(0, 1, 4, 2, 3).float()
         board_channels = board_one_hot.reshape(batch_size, history_size * self.cfg.num_classes, height, width)
         next_action = actions_one_hot[:, -1]
         action_channels = next_action[:, :, None, None].expand(batch_size, self.cfg.action_dim, height, width)

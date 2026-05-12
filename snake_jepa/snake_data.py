@@ -168,16 +168,18 @@ class SnakeBoardDataset(Dataset):
         clips: list[SnakeClip],
         *,
         history_size: int,
+        rollout_steps: int = 1,
         stride: int = 1,
         max_windows_per_clip: int = 0,
     ) -> None:
         super().__init__()
         self.history_size = int(history_size)
+        self.rollout_steps = max(1, int(rollout_steps))
         self.samples: list[tuple[SnakeClip, int]] = []
         self._board_cache: dict[Path, torch.Tensor] = {}
 
         for clip in clips:
-            max_start = len(clip.frames) - (self.history_size + 1)
+            max_start = len(clip.frames) - (self.history_size + self.rollout_steps)
             if max_start < 0:
                 continue
             added = 0
@@ -203,6 +205,7 @@ class SnakeBoardDataset(Dataset):
     def __getitem__(self, index: int) -> dict[str, torch.Tensor]:
         clip, start = self.samples[index]
         hist_end = start + self.history_size
+        rollout_end = hist_end + self.rollout_steps
         history_boards = [
             self._load_board(frame.path) for frame in clip.frames[start:hist_end]
         ]
@@ -210,11 +213,20 @@ class SnakeBoardDataset(Dataset):
             [frame.action for frame in clip.frames[start + 1 : hist_end + 1]],
             dtype=torch.long,
         )
+        target_boards = [
+            self._load_board(frame.path) for frame in clip.frames[hist_end:rollout_end]
+        ]
+        target_actions = torch.tensor(
+            [frame.action for frame in clip.frames[hist_end:rollout_end]],
+            dtype=torch.long,
+        )
         return {
             "history_boards": torch.stack(history_boards, dim=0),
-            "next_board": self._load_board(clip.frames[hist_end].path),
+            "next_board": target_boards[0],
+            "target_boards": torch.stack(target_boards, dim=0),
             "actions": actions,
             "actions_one_hot": F.one_hot(actions, num_classes=4).float(),
+            "target_actions": target_actions,
         }
 
 
@@ -282,6 +294,7 @@ def build_snake_board_loaders(
     *,
     levels: list[str] | None,
     history_size: int,
+    rollout_steps: int = 1,
     batch_size: int,
     val_fraction: float,
     num_workers: int,
@@ -303,12 +316,14 @@ def build_snake_board_loaders(
     train_dataset = SnakeBoardDataset(
         train_clips,
         history_size=history_size,
+        rollout_steps=rollout_steps,
         stride=stride,
         max_windows_per_clip=max_windows_per_clip,
     )
     val_dataset = SnakeBoardDataset(
         val_clips,
         history_size=history_size,
+        rollout_steps=rollout_steps,
         stride=stride,
         max_windows_per_clip=max_windows_per_clip,
     )
