@@ -47,6 +47,9 @@ DEFAULT_CONFIG = {
     "decoder_depth": 4,
     "decoder_heads": 4,
     "decoder_mlp_ratio": 4.0,
+    "pixel_dynamics": False,
+    "pixel_dynamics_hidden": 64,
+    "pixel_dynamics_depth": 6,
     "dropout": 0.0,
     "latent_loss_weight": 1.0,
     "pred_recon_loss_weight": 1.0,
@@ -126,6 +129,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pred-recon-loss-weight", type=float, default=None)
     parser.add_argument("--target-recon-loss-weight", type=float, default=None)
     parser.add_argument("--history-recon-loss-weight", type=float, default=None)
+    parser.add_argument("--pixel-dynamics", action="store_true")
+    parser.add_argument("--pixel-dynamics-hidden", type=int, default=None)
+    parser.add_argument("--pixel-dynamics-depth", type=int, default=None)
     parser.add_argument("--recon-foreground-weight", type=float, default=None)
     parser.add_argument("--recon-hard-weight", type=float, default=None)
     parser.add_argument("--recon-hard-fraction", type=float, default=None)
@@ -188,6 +194,12 @@ def load_config(args: argparse.Namespace) -> dict:
         config["target_recon_loss_weight"] = args.target_recon_loss_weight
     if args.history_recon_loss_weight is not None:
         config["history_recon_loss_weight"] = args.history_recon_loss_weight
+    if args.pixel_dynamics:
+        config["pixel_dynamics"] = True
+    if args.pixel_dynamics_hidden is not None:
+        config["pixel_dynamics_hidden"] = args.pixel_dynamics_hidden
+    if args.pixel_dynamics_depth is not None:
+        config["pixel_dynamics_depth"] = args.pixel_dynamics_depth
     if args.recon_foreground_weight is not None:
         config["recon_foreground_weight"] = args.recon_foreground_weight
     if args.recon_hard_weight is not None:
@@ -260,6 +272,9 @@ def make_model_config(config: dict) -> SnakePatchWorldModelConfig:
         decoder_heads=int(config["decoder_heads"]),
         decoder_mlp_ratio=float(config["decoder_mlp_ratio"]),
         dropout=float(config["dropout"]),
+        pixel_dynamics=bool(config.get("pixel_dynamics", False)),
+        pixel_dynamics_hidden=int(config.get("pixel_dynamics_hidden", 64)),
+        pixel_dynamics_depth=int(config.get("pixel_dynamics_depth", 6)),
     )
 
 

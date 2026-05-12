@@ -27,6 +27,9 @@ class SnakePatchWorldModelConfig:
     decoder_heads: int = 4
     decoder_mlp_ratio: float = 4.0
     dropout: float = 0.0
+    pixel_dynamics: bool = False
+    pixel_dynamics_hidden: int = 64
+    pixel_dynamics_depth: int = 6
 
 
 class SnakePatchWorldModel(nn.Module):
@@ -71,6 +74,16 @@ class SnakePatchWorldModel(nn.Module):
             hidden_dim=cfg.decoder_dim,
             num_classes=NUM_BOARD_CLASSES,
             dropout=cfg.dropout,
+        )
+        self.pixel_dynamics = (
+            PixelDynamics(
+                history_size=cfg.history_size,
+                action_dim=cfg.action_dim,
+                hidden_dim=cfg.pixel_dynamics_hidden,
+                depth=cfg.pixel_dynamics_depth,
+            )
+            if cfg.pixel_dynamics
+            else None
         )
 
     @property
@@ -130,7 +143,10 @@ class SnakePatchWorldModel(nn.Module):
 
         history_recon = self.decode_sequence(history_latents)
         history_board_logits = self.decode_board_sequence(history_latents)
-        pred_next_frame = self.decoder(pred_next_latent)
+        if self.pixel_dynamics is not None:
+            pred_next_frame = self.pixel_dynamics(history_frames, actions_one_hot[:, -1])
+        else:
+            pred_next_frame = self.decoder(pred_next_latent)
         target_next_recon = self.decoder(target_next_latent)
         pred_next_board_logits = self.board_decoder(pred_next_latent)
         target_next_board_logits = self.board_decoder(target_next_latent)
@@ -197,6 +213,50 @@ class SpatialLatentDynamics(nn.Module):
             x = block(x, causal=False)
         x = x.reshape(batch_size, history_size, num_patches, -1)
         return self.out_proj(self.norm(x[:, -1]))
+
+
+class PixelResidualBlock(nn.Module):
+    def __init__(self, channels: int) -> None:
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Conv2d(channels, channels, kernel_size=3, padding=1),
+            nn.GELU(),
+            nn.Conv2d(channels, channels, kernel_size=3, padding=1),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x + self.net(x)
+
+
+class PixelDynamics(nn.Module):
+    def __init__(
+        self,
+        *,
+        history_size: int,
+        action_dim: int,
+        hidden_dim: int,
+        depth: int,
+    ) -> None:
+        super().__init__()
+        in_channels = int(history_size) * 3 + int(action_dim)
+        self.in_proj = nn.Sequential(
+            nn.Conv2d(in_channels, hidden_dim, kernel_size=5, padding=2),
+            nn.GELU(),
+        )
+        self.blocks = nn.Sequential(*[PixelResidualBlock(hidden_dim) for _ in range(int(depth))])
+        self.out_proj = nn.Conv2d(hidden_dim, 3, kernel_size=3, padding=1)
+
+    def forward(self, history_frames: torch.Tensor, next_actions_one_hot: torch.Tensor) -> torch.Tensor:
+        if history_frames.dim() != 5:
+            raise ValueError(f"expected history frames with rank 5, got {tuple(history_frames.shape)}")
+        batch_size, history_size, channels, height, width = history_frames.shape
+        if channels != 3:
+            raise ValueError(f"expected RGB history frames, got {channels} channels")
+        actions = next_actions_one_hot[:, :, None, None].expand(batch_size, next_actions_one_hot.size(1), height, width)
+        x = torch.cat([history_frames.reshape(batch_size, history_size * channels, height, width), actions], dim=1)
+        delta = self.out_proj(self.blocks(self.in_proj(x)))
+        last_frame = history_frames[:, -1]
+        return (last_frame + delta).clamp(0.0, 1.0)
 
 
 class OrderedPatchDecoder(nn.Module):
