@@ -59,6 +59,8 @@ DEFAULT_CONFIG = {
     "recon_foreground_threshold": 0.08,
     "recon_hard_weight": 0.0,
     "recon_hard_fraction": 0.0,
+    "pred_change_loss_weight": 0.0,
+    "pred_change_threshold": 0.02,
     "sigreg_weight": 0.03,
     "sigreg_knots": 17,
     "sigreg_num_proj": 512,
@@ -116,6 +118,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--recon-foreground-weight", type=float, default=None)
     parser.add_argument("--recon-hard-weight", type=float, default=None)
     parser.add_argument("--recon-hard-fraction", type=float, default=None)
+    parser.add_argument("--pred-change-loss-weight", type=float, default=None)
+    parser.add_argument("--pred-change-threshold", type=float, default=None)
     parser.add_argument("--pred-board-loss-weight", type=float, default=None)
     parser.add_argument("--target-board-loss-weight", type=float, default=None)
     parser.add_argument("--history-board-loss-weight", type=float, default=None)
@@ -164,6 +168,10 @@ def load_config(args: argparse.Namespace) -> dict:
         config["recon_hard_weight"] = args.recon_hard_weight
     if args.recon_hard_fraction is not None:
         config["recon_hard_fraction"] = args.recon_hard_fraction
+    if args.pred_change_loss_weight is not None:
+        config["pred_change_loss_weight"] = args.pred_change_loss_weight
+    if args.pred_change_threshold is not None:
+        config["pred_change_threshold"] = args.pred_change_threshold
     if args.pred_board_loss_weight is not None:
         config["pred_board_loss_weight"] = args.pred_board_loss_weight
     if args.target_board_loss_weight is not None:
@@ -243,6 +251,20 @@ def reconstruction_loss(pred: torch.Tensor, target: torch.Tensor, config: dict) 
     return loss
 
 
+def temporal_change_loss(
+    pred: torch.Tensor,
+    target: torch.Tensor,
+    previous: torch.Tensor,
+    config: dict,
+) -> torch.Tensor:
+    threshold = float(config.get("pred_change_threshold", 0.02))
+    change_mask = (target - previous).abs().amax(dim=-3, keepdim=True) > threshold
+    if not bool(change_mask.any()):
+        return pred.new_zeros(())
+    pixel_error = (pred - target).abs() + (pred - target).square()
+    return pixel_error.masked_select(change_mask.expand_as(pixel_error)).mean()
+
+
 def board_diagnostics_enabled(config: dict) -> bool:
     return any(
         float(config.get(key, 0.0)) > 0.0
@@ -255,6 +277,12 @@ def compute_losses(output: dict[str, torch.Tensor], batch: dict[str, torch.Tenso
     pred_recon_loss = reconstruction_loss(output["pred_next_frame"], batch["next_frame"], config)
     target_recon_loss = reconstruction_loss(output["target_next_recon"], batch["next_frame"], config)
     history_recon_loss = reconstruction_loss(output["history_recon"], batch["history_frames"], config)
+    pred_change_loss = temporal_change_loss(
+        output["pred_next_frame"],
+        batch["next_frame"],
+        batch["history_frames"][:, -1],
+        config,
+    )
     if board_diagnostics_enabled(config):
         pred_board_loss = board_loss(output["pred_next_board_logits"], batch["next_board"])
         target_board_loss = board_loss(output["target_next_board_logits"], batch["next_board"])
@@ -273,6 +301,7 @@ def compute_losses(output: dict[str, torch.Tensor], batch: dict[str, torch.Tenso
         + float(config["pred_board_loss_weight"]) * pred_board_loss
         + float(config["target_board_loss_weight"]) * target_board_loss
         + float(config["history_board_loss_weight"]) * history_board_loss
+        + float(config["pred_change_loss_weight"]) * pred_change_loss
         + float(config["sigreg_weight"]) * sigreg_loss
     )
     return {
@@ -281,6 +310,7 @@ def compute_losses(output: dict[str, torch.Tensor], batch: dict[str, torch.Tenso
         "pred_recon_loss": pred_recon_loss,
         "target_recon_loss": target_recon_loss,
         "history_recon_loss": history_recon_loss,
+        "pred_change_loss": pred_change_loss,
         "pred_board_loss": pred_board_loss,
         "target_board_loss": target_board_loss,
         "history_board_loss": history_board_loss,
