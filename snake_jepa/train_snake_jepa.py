@@ -57,6 +57,8 @@ DEFAULT_CONFIG = {
     "history_board_loss_weight": 0.0,
     "recon_foreground_weight": 10.0,
     "recon_foreground_threshold": 0.08,
+    "recon_hard_weight": 0.0,
+    "recon_hard_fraction": 0.0,
     "sigreg_weight": 0.03,
     "sigreg_knots": 17,
     "sigreg_num_proj": 512,
@@ -112,6 +114,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-val-batches", type=int, default=None)
     parser.add_argument("--sigreg-weight", type=float, default=None)
     parser.add_argument("--recon-foreground-weight", type=float, default=None)
+    parser.add_argument("--recon-hard-weight", type=float, default=None)
+    parser.add_argument("--recon-hard-fraction", type=float, default=None)
     parser.add_argument("--pred-board-loss-weight", type=float, default=None)
     parser.add_argument("--target-board-loss-weight", type=float, default=None)
     parser.add_argument("--history-board-loss-weight", type=float, default=None)
@@ -156,6 +160,10 @@ def load_config(args: argparse.Namespace) -> dict:
         config["sigreg_weight"] = args.sigreg_weight
     if args.recon_foreground_weight is not None:
         config["recon_foreground_weight"] = args.recon_foreground_weight
+    if args.recon_hard_weight is not None:
+        config["recon_hard_weight"] = args.recon_hard_weight
+    if args.recon_hard_fraction is not None:
+        config["recon_hard_fraction"] = args.recon_hard_fraction
     if args.pred_board_loss_weight is not None:
         config["pred_board_loss_weight"] = args.pred_board_loss_weight
     if args.target_board_loss_weight is not None:
@@ -221,7 +229,18 @@ def reconstruction_loss(pred: torch.Tensor, target: torch.Tensor, config: dict) 
     weight = 1.0 + foreground_weight * mask
     l1 = ((pred - target).abs() * weight).mean()
     mse = ((pred - target).square() * weight).mean()
-    return l1 + mse
+    loss = l1 + mse
+
+    hard_weight = float(config.get("recon_hard_weight", 0.0))
+    hard_fraction = float(config.get("recon_hard_fraction", 0.0))
+    if hard_weight > 0.0 and hard_fraction > 0.0:
+        per_pixel_l1 = (pred - target).abs().mean(dim=-3)
+        flat_l1 = per_pixel_l1.flatten(1)
+        k = max(1, min(flat_l1.size(1), int(flat_l1.size(1) * hard_fraction)))
+        hard_indices = flat_l1.detach().topk(k, dim=1).indices
+        hard_l1 = flat_l1.gather(1, hard_indices).mean()
+        loss = loss + hard_weight * hard_l1
+    return loss
 
 
 def board_diagnostics_enabled(config: dict) -> bool:
