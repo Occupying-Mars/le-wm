@@ -10,7 +10,7 @@ import torch
 import torch.nn.functional as F
 from PIL import Image, ImageDraw
 
-from snake_jepa.snake_board import render_board
+from snake_jepa.snake_board import FOOD, SNAKE, render_board
 from snake_jepa.snake_data import build_snake_loaders
 from snake_jepa.snake_world_model import SnakePatchWorldModel, SnakePatchWorldModelConfig
 
@@ -252,6 +252,27 @@ def board_loss(logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     return F.cross_entropy(logits, target.long())
 
 
+@torch.no_grad()
+def pred_board_metrics(logits: torch.Tensor, target: torch.Tensor) -> dict[str, tuple[float, int]]:
+    pred = logits.argmax(dim=1)
+    target = target.long()
+    correct = pred.eq(target)
+    metrics = {
+        "pred_board_acc": (float(correct.float().mean().item()), target.numel()),
+    }
+    for name, mask in {
+        "pred_board_nonempty_acc": target.ne(0),
+        "pred_board_snake_acc": target.eq(SNAKE),
+        "pred_board_food_acc": target.eq(FOOD),
+    }.items():
+        denom = int(mask.sum().item())
+        if denom > 0:
+            metrics[name] = (float(correct[mask].float().mean().item()), denom)
+        else:
+            metrics[name] = (0.0, 0)
+    return metrics
+
+
 def sigreg_history_input(history_latents: torch.Tensor) -> torch.Tensor:
     if history_latents.dim() == 3:
         return history_latents.transpose(0, 1)
@@ -357,6 +378,13 @@ def run_epoch(
         "history_board_loss": 0.0,
         "sigreg_loss": 0.0,
     }
+    metric_totals = {
+        "pred_board_acc": 0.0,
+        "pred_board_nonempty_acc": 0.0,
+        "pred_board_snake_acc": 0.0,
+        "pred_board_food_acc": 0.0,
+    }
+    metric_counts = {key: 0 for key in metric_totals}
     count = 0
     max_batches = int(config["max_train_batches"] if training else config["max_val_batches"])
 
@@ -381,11 +409,16 @@ def run_epoch(
         batch_size = batch["next_frame"].size(0)
         for key in totals:
             totals[key] += float(losses[key].item()) * batch_size
+        for key, (value, weight) in pred_board_metrics(output["pred_next_board_logits"], batch["next_board"]).items():
+            metric_totals[key] += value * weight
+            metric_counts[key] += weight
         count += batch_size
         if max_batches > 0 and step >= max_batches:
             break
 
-    return {key: value / max(1, count) for key, value in totals.items()}
+    result = {key: value / max(1, count) for key, value in totals.items()}
+    result.update({key: metric_totals[key] / max(1, metric_counts[key]) for key in metric_totals})
+    return result
 
 
 def save_checkpoint(
@@ -533,7 +566,9 @@ def main() -> None:
             print(
                 f"epoch {epoch:03d} | train {train_metrics['loss']:.4f} | val {val_metrics['loss']:.4f} | "
                 f"pred_recon {val_metrics['pred_recon_loss']:.4f} | "
-                f"pred_board {val_metrics['pred_board_loss']:.4f} | latent {val_metrics['latent_loss']:.4f}"
+                f"pred_board {val_metrics['pred_board_loss']:.4f} | "
+                f"board_acc {val_metrics['pred_board_acc']:.3f} | "
+                f"food_acc {val_metrics['pred_board_food_acc']:.3f} | latent {val_metrics['latent_loss']:.4f}"
             )
 
             log_payload = {

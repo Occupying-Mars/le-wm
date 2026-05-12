@@ -48,6 +48,7 @@ model design:
 - `PatchBoardDecoder` decodes predicted latents into a `20x20` board from labels extracted from the png pixels.
 - reconstruction loss is foreground-weighted so sparse snake/food pixels are not dominated by black background.
 - board cross-entropy is now tracked separately from pixel reconstruction.
+- board accuracy, non-empty accuracy, snake-cell accuracy, and food-cell accuracy are logged to wandb.
 
 ## smoke verification
 

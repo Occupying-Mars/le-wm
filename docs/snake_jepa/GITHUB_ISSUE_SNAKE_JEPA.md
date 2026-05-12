@@ -103,13 +103,13 @@ one-window overfit:
 
 - pixel autoencoder still was not exact enough at `128x128` or `320x320`.
 - board decoder reached `pred_board_loss=0.0011` by epoch 120 on `snake-jepa-board-overfit-one-window`.
+- trainer now logs board accuracy, non-empty accuracy, snake-cell accuracy, and food-cell accuracy.
 
 ## next steps
 
 1. train a wandb-tracked subset across multiple clips and inspect predicted-board previews.
-2. add board accuracy metrics, especially snake/food cells, not just cross-entropy.
-3. run interactive inference with `--decode-mode board`.
-4. evaluate whether food respawn is learnable from image/action history alone.
+2. run interactive inference with `--decode-mode board`.
+3. evaluate whether food respawn is learnable from image/action history alone.
 
 ## caveat
 
