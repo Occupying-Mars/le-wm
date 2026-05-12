@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import torch
 from torch import nn
 
-from debug_box_world_model import LatentDynamics, TinyViTEncoder
+from debug_box_world_model import LatentDynamics, TinyViTEncoder, TransformerBlock
 from snake_jepa.snake_board import NUM_BOARD_CLASSES
 
 
@@ -58,6 +58,9 @@ class SnakePatchWorldModel(nn.Module):
             image_size=cfg.image_size,
             patch_size=cfg.patch_size,
             hidden_dim=cfg.decoder_dim,
+            depth=cfg.decoder_depth,
+            heads=cfg.decoder_heads,
+            mlp_ratio=cfg.decoder_mlp_ratio,
             dropout=cfg.dropout,
         )
         self.board_decoder = PatchBoardDecoder(
@@ -167,6 +170,9 @@ class OrderedPatchDecoder(nn.Module):
         image_size: int,
         patch_size: int,
         hidden_dim: int,
+        depth: int,
+        heads: int,
+        mlp_ratio: float,
         dropout: float,
     ) -> None:
         super().__init__()
@@ -177,16 +183,22 @@ class OrderedPatchDecoder(nn.Module):
         self.grid_size = self.image_size // self.patch_size
         self.num_patches = self.grid_size * self.grid_size
         self.patch_dim = self.patch_size * self.patch_size * 3
-        self.net = nn.Sequential(
-            nn.LayerNorm(latent_dim),
-            nn.Linear(latent_dim, hidden_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, self.patch_dim),
+        self.pos_embed = nn.Parameter(torch.zeros(1, self.num_patches, hidden_dim))
+        self.in_proj = nn.Linear(latent_dim, hidden_dim)
+        self.blocks = nn.ModuleList(
+            [
+                TransformerBlock(
+                    hidden_dim,
+                    heads,
+                    mlp_ratio,
+                    dropout,
+                )
+                for _ in range(depth)
+            ]
         )
+        self.norm = nn.LayerNorm(hidden_dim)
+        self.out_proj = nn.Linear(hidden_dim, self.patch_dim)
+        nn.init.trunc_normal_(self.pos_embed, std=0.02)
 
     def forward(self, latents: torch.Tensor) -> torch.Tensor:
         if latents.dim() != 3:
@@ -194,7 +206,10 @@ class OrderedPatchDecoder(nn.Module):
         batch_size, num_patches, _ = latents.shape
         if num_patches != self.num_patches:
             raise ValueError(f"expected {self.num_patches} patches, got {num_patches}")
-        patches = self.net(latents).sigmoid()
+        patches = self.in_proj(latents) + self.pos_embed
+        for block in self.blocks:
+            patches = block(patches, causal=False)
+        patches = self.out_proj(self.norm(patches)).sigmoid()
         patches = patches.view(
             batch_size,
             self.grid_size,

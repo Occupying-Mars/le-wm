@@ -100,10 +100,12 @@ class SnakeFrameDataset(Dataset):
         image_size: int,
         stride: int = 1,
         max_windows_per_clip: int = 0,
+        include_boards: bool = False,
     ) -> None:
         super().__init__()
         self.history_size = int(history_size)
         self.image_size = int(image_size)
+        self.include_boards = bool(include_boards)
         self.samples: list[tuple[SnakeClip, int]] = []
 
         for clip in clips:
@@ -139,24 +141,25 @@ class SnakeFrameDataset(Dataset):
         history_frames = [
             self._load_frame(frame.path) for frame in clip.frames[start:hist_end]
         ]
-        history_boards = [
-            extract_board(frame.path) for frame in clip.frames[start:hist_end]
-        ]
         next_frame = self._load_frame(clip.frames[hist_end].path)
-        next_board = extract_board(clip.frames[hist_end].path)
 
         actions = torch.tensor(
             [frame.action for frame in clip.frames[start + 1 : hist_end + 1]],
             dtype=torch.long,
         )
-        return {
+        sample = {
             "history_frames": torch.stack(history_frames, dim=0),
-            "history_boards": torch.stack(history_boards, dim=0),
             "next_frame": next_frame,
-            "next_board": next_board,
             "actions": actions,
             "actions_one_hot": F.one_hot(actions, num_classes=4).float(),
         }
+        if self.include_boards:
+            history_boards = [
+                extract_board(frame.path) for frame in clip.frames[start:hist_end]
+            ]
+            sample["history_boards"] = torch.stack(history_boards, dim=0)
+            sample["next_board"] = extract_board(clip.frames[hist_end].path)
+        return sample
 
 
 def build_snake_loaders(
@@ -171,6 +174,7 @@ def build_snake_loaders(
     stride: int = 1,
     max_clips_per_level: int = 0,
     max_windows_per_clip: int = 0,
+    include_boards: bool = False,
 ) -> tuple[DataLoader, DataLoader]:
     clips = discover_snake_clips(
         dataset_root,
@@ -189,6 +193,7 @@ def build_snake_loaders(
         image_size=image_size,
         stride=stride,
         max_windows_per_clip=max_windows_per_clip,
+        include_boards=include_boards,
     )
     val_dataset = SnakeFrameDataset(
         val_clips,
@@ -196,6 +201,7 @@ def build_snake_loaders(
         image_size=image_size,
         stride=stride,
         max_windows_per_clip=max_windows_per_clip,
+        include_boards=include_boards,
     )
 
     train_loader = DataLoader(

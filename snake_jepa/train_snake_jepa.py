@@ -10,7 +10,7 @@ import torch
 import torch.nn.functional as F
 from PIL import Image, ImageDraw
 
-from snake_jepa.snake_board import FOOD, SNAKE, render_board
+from snake_jepa.snake_board import FOOD, SNAKE
 from snake_jepa.snake_data import build_snake_loaders
 from snake_jepa.snake_world_model import SnakePatchWorldModel, SnakePatchWorldModelConfig
 
@@ -218,14 +218,26 @@ def reconstruction_loss(pred: torch.Tensor, target: torch.Tensor, config: dict) 
     return l1 + mse
 
 
+def board_diagnostics_enabled(config: dict) -> bool:
+    return any(
+        float(config.get(key, 0.0)) > 0.0
+        for key in ("pred_board_loss_weight", "target_board_loss_weight", "history_board_loss_weight")
+    )
+
+
 def compute_losses(output: dict[str, torch.Tensor], batch: dict[str, torch.Tensor], config: dict) -> dict[str, torch.Tensor]:
     latent_loss = F.mse_loss(output["pred_next_latent"], output["target_next_latent"].detach())
     pred_recon_loss = reconstruction_loss(output["pred_next_frame"], batch["next_frame"], config)
     target_recon_loss = reconstruction_loss(output["target_next_recon"], batch["next_frame"], config)
     history_recon_loss = reconstruction_loss(output["history_recon"], batch["history_frames"], config)
-    pred_board_loss = board_loss(output["pred_next_board_logits"], batch["next_board"])
-    target_board_loss = board_loss(output["target_next_board_logits"], batch["next_board"])
-    history_board_loss = board_loss(output["history_board_logits"], batch["history_boards"])
+    if board_diagnostics_enabled(config):
+        pred_board_loss = board_loss(output["pred_next_board_logits"], batch["next_board"])
+        target_board_loss = board_loss(output["target_next_board_logits"], batch["next_board"])
+        history_board_loss = board_loss(output["history_board_logits"], batch["history_boards"])
+    else:
+        pred_board_loss = pred_recon_loss.new_zeros(())
+        target_board_loss = pred_recon_loss.new_zeros(())
+        history_board_loss = pred_recon_loss.new_zeros(())
     sigreg_loss = output["sigreg_loss"]
 
     total = (
@@ -344,20 +356,18 @@ def create_preview_image(
     target_next: torch.Tensor,
     pred_next: torch.Tensor,
     target_recon: torch.Tensor,
-    pred_board: torch.Tensor,
 ) -> Image.Image:
     history_tiles = [_to_pil(frame) for frame in history]
     target_tiles = [_to_pil(target_next) for _ in history_tiles]
     pred_tiles = [_to_pil(pred_next) for _ in history_tiles]
     recon_tiles = [_to_pil(target_recon) for _ in history_tiles]
-    board_tiles = [render_board(pred_board, target_next.shape[-1]) for _ in history_tiles]
 
     tile_w, tile_h = history_tiles[0].size
     columns = len(history_tiles)
-    rows = 5
+    rows = 4
     canvas = Image.new("RGB", (columns * tile_w, rows * tile_h + 28), color=(18, 18, 18))
     draw = ImageDraw.Draw(canvas)
-    labels = ["history", "target next", "pred next", "target recon", "pred board"]
+    labels = ["history", "target next", "pred next", "target recon"]
     for row, label in enumerate(labels):
         draw.text((6, row * tile_h + 6), label, fill=(235, 235, 235))
 
@@ -369,8 +379,6 @@ def create_preview_image(
         canvas.paste(tile, (idx * tile_w, 2 * tile_h))
     for idx, tile in enumerate(recon_tiles):
         canvas.paste(tile, (idx * tile_w, 3 * tile_h))
-    for idx, tile in enumerate(board_tiles):
-        canvas.paste(tile, (idx * tile_w, 4 * tile_h))
     return canvas
 
 
@@ -393,7 +401,6 @@ def save_preview(
         target_next,
         pred_next,
         output["target_next_recon"][0],
-        output["pred_next_board_logits"][0].argmax(dim=0),
     )
     preview_dir = output_dir / "previews"
     preview_dir.mkdir(parents=True, exist_ok=True)
@@ -466,9 +473,10 @@ def run_epoch(
         batch_size = batch["next_frame"].size(0)
         for key in totals:
             totals[key] += float(losses[key].item()) * batch_size
-        for key, (value, weight) in pred_board_metrics(output["pred_next_board_logits"], batch["next_board"]).items():
-            metric_totals[key] += value * weight
-            metric_counts[key] += weight
+        if board_diagnostics_enabled(config):
+            for key, (value, weight) in pred_board_metrics(output["pred_next_board_logits"], batch["next_board"]).items():
+                metric_totals[key] += value * weight
+                metric_counts[key] += weight
         count += batch_size
         if max_batches > 0 and step >= max_batches:
             break
@@ -571,6 +579,7 @@ def main() -> None:
         stride=int(config["stride"]),
         max_clips_per_level=int(config["max_clips_per_level"]),
         max_windows_per_clip=int(config["max_windows_per_clip"]),
+        include_boards=board_diagnostics_enabled(config),
     )
 
     model = SnakePatchWorldModel(make_model_config(config)).to(device)
@@ -620,20 +629,36 @@ def main() -> None:
             val_metrics = run_epoch(model, sigreg, val_loader, device, config)
             last_epoch = epoch
             last_val_metrics = val_metrics
-            print(
+            message = (
                 f"epoch {epoch:03d} | train {train_metrics['loss']:.4f} | val {val_metrics['loss']:.4f} | "
-                f"pred_recon {val_metrics['pred_recon_loss']:.4f} | "
-                f"pred_board {val_metrics['pred_board_loss']:.4f} | "
-                f"board_acc {val_metrics['pred_board_acc']:.3f} | "
-                f"food_acc {val_metrics['pred_board_food_acc']:.3f} | latent {val_metrics['latent_loss']:.4f}"
+                f"pred_recon {val_metrics['pred_recon_loss']:.4f} | latent {val_metrics['latent_loss']:.4f}"
             )
+            if board_diagnostics_enabled(config):
+                message += (
+                    f" | pred_board {val_metrics['pred_board_loss']:.4f}"
+                    f" | board_acc {val_metrics['pred_board_acc']:.3f}"
+                    f" | food_acc {val_metrics['pred_board_food_acc']:.3f}"
+                )
+            print(message)
 
             log_payload = {
                 "epoch": epoch,
-                **{f"train/{key}": value for key, value in train_metrics.items()},
-                **{f"val/{key}": value for key, value in val_metrics.items()},
                 "best_val/loss": min(best_val, val_metrics["loss"]),
             }
+            log_payload.update(
+                {
+                    f"train/{key}": value
+                    for key, value in train_metrics.items()
+                    if board_diagnostics_enabled(config) or "board" not in key
+                }
+            )
+            log_payload.update(
+                {
+                    f"val/{key}": value
+                    for key, value in val_metrics.items()
+                    if board_diagnostics_enabled(config) or "board" not in key
+                }
+            )
 
             if epoch % int(config["preview_every"]) == 0:
                 preview_image, gif_paths = save_preview(model, val_loader, device, run_dir, epoch)
