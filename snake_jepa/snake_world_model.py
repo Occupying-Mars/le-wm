@@ -198,7 +198,17 @@ class OrderedPatchDecoder(nn.Module):
         )
         self.norm = nn.LayerNorm(hidden_dim)
         self.out_proj = nn.Linear(hidden_dim, self.patch_dim)
+        refine_dim = min(64, hidden_dim)
+        self.pixel_refiner = nn.Sequential(
+            nn.Conv2d(3, refine_dim, kernel_size=3, padding=1),
+            nn.GELU(),
+            nn.Conv2d(refine_dim, refine_dim, kernel_size=3, padding=1),
+            nn.GELU(),
+            nn.Conv2d(refine_dim, 3, kernel_size=3, padding=1),
+        )
         nn.init.trunc_normal_(self.pos_embed, std=0.02)
+        nn.init.zeros_(self.pixel_refiner[-1].weight)
+        nn.init.zeros_(self.pixel_refiner[-1].bias)
 
     def forward(self, latents: torch.Tensor) -> torch.Tensor:
         if latents.dim() != 3:
@@ -209,7 +219,7 @@ class OrderedPatchDecoder(nn.Module):
         patches = self.in_proj(latents) + self.pos_embed
         for block in self.blocks:
             patches = block(patches, causal=False)
-        patches = self.out_proj(self.norm(patches)).sigmoid()
+        patches = self.out_proj(self.norm(patches))
         patches = patches.view(
             batch_size,
             self.grid_size,
@@ -218,12 +228,14 @@ class OrderedPatchDecoder(nn.Module):
             self.patch_size,
             3,
         )
-        return patches.permute(0, 5, 1, 3, 2, 4).reshape(
+        image = patches.permute(0, 5, 1, 3, 2, 4).reshape(
             batch_size,
             3,
             self.image_size,
             self.image_size,
         )
+        image = image + self.pixel_refiner(image)
+        return image.sigmoid()
 
 
 class PatchBoardDecoder(nn.Module):
