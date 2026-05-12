@@ -10,8 +10,8 @@ import torch
 import torch.nn.functional as F
 from PIL import Image, ImageDraw
 
-from snake_data import build_snake_loaders
-from snake_world_model import SnakePatchWorldModel, SnakePatchWorldModelConfig
+from snake_jepa.snake_data import build_snake_loaders
+from snake_jepa.snake_world_model import SnakePatchWorldModel, SnakePatchWorldModelConfig
 
 
 DEFAULT_CONFIG = {

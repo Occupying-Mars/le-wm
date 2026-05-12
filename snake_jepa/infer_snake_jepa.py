@@ -11,8 +11,8 @@ import torch.nn.functional as F
 from matplotlib.widgets import Button
 from PIL import Image
 
-from snake_data import SnakeClip, discover_snake_clips
-from snake_world_model import SnakePatchWorldModel, SnakePatchWorldModelConfig
+from snake_jepa.snake_data import SnakeClip, discover_snake_clips
+from snake_jepa.snake_world_model import SnakePatchWorldModel, SnakePatchWorldModelConfig
 
 
 ACTION_NAMES = ["up", "right", "down", "left"]

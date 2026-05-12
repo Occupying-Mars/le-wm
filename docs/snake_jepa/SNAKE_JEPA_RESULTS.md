@@ -32,11 +32,11 @@ observed counts:
 
 new repo files:
 
-- `snake_data.py`: snake dataset discovery and sliding-window dataloader.
-- `snake_world_model.py`: patch-latent lewm-style world model.
-- `train_snake_jepa.py`: training script for encoder + dynamics + decoder.
-- `infer_snake_jepa.py`: interactive model rollout/play UI.
-- `TRAIN_SNAKE_JEPA.md`: commands.
+- `snake_jepa/snake_data.py`: snake dataset discovery and sliding-window dataloader.
+- `snake_jepa/snake_world_model.py`: patch-latent lewm-style world model.
+- `snake_jepa/train_snake_jepa.py`: training script for encoder + dynamics + decoder.
+- `snake_jepa/infer_snake_jepa.py`: interactive model rollout/play UI.
+- `docs/snake_jepa/TRAIN_SNAKE_JEPA.md`: commands.
 
 model design:
 
@@ -50,13 +50,13 @@ model design:
 syntax:
 
 ```bash
-uv run python -m py_compile snake_data.py train_snake_jepa.py infer_snake_jepa.py snake_world_model.py
+uv run python -m py_compile snake_jepa/snake_data.py snake_jepa/train_snake_jepa.py snake_jepa/infer_snake_jepa.py snake_jepa/snake_world_model.py
 ```
 
 completed smoke run:
 
 ```bash
-uv run python train_snake_jepa.py \
+uv run python -m snake_jepa.train_snake_jepa \
   --run-name snake-jepa-smoke \
   --device cpu \
   --epochs 1 \

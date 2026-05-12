@@ -17,13 +17,13 @@ commits:
 
 new files:
 
-- `snake_data.py`: discovers `/Users/krishna/Public/ml-experiments/snake-we/datasets/snake_agent`, loads clip metadata and png frames, produces history/next/action batches.
-- `snake_world_model.py`: lewm-style patch-latent world model.
-- `train_snake_jepa.py`: trains encoder + patch dynamics + decoder.
-- `infer_snake_jepa.py`: interactive playable rollout UI.
+- `snake_jepa/snake_data.py`: discovers `/Users/krishna/Public/ml-experiments/snake-we/datasets/snake_agent`, loads clip metadata and png frames, produces history/next/action batches.
+- `snake_jepa/snake_world_model.py`: lewm-style patch-latent world model.
+- `snake_jepa/train_snake_jepa.py`: trains encoder + patch dynamics + decoder.
+- `snake_jepa/infer_snake_jepa.py`: interactive playable rollout UI.
 - `config/train/snake_jepa.json`: default training config.
-- `TRAIN_SNAKE_JEPA.md`: run commands.
-- `SNAKE_JEPA_RESULTS.md`: current results and caveats.
+- `docs/snake_jepa/TRAIN_SNAKE_JEPA.md`: run commands.
+- `docs/snake_jepa/SNAKE_JEPA_RESULTS.md`: current results and caveats.
 
 ## dataset
 
@@ -58,13 +58,13 @@ this keeps the implementation inside the current lewm-style encoder/dynamics/dec
 syntax:
 
 ```bash
-uv run python -m py_compile snake_data.py snake_world_model.py train_snake_jepa.py infer_snake_jepa.py
+uv run python -m py_compile snake_jepa/snake_data.py snake_jepa/snake_world_model.py snake_jepa/train_snake_jepa.py snake_jepa/infer_snake_jepa.py
 ```
 
 patch-model smoke:
 
 ```bash
-uv run python train_snake_jepa.py \
+uv run python -m snake_jepa.train_snake_jepa \
   --run-name snake-jepa-patch-smoke \
   --device cpu \
   --epochs 1 \
@@ -111,6 +111,6 @@ metadata does not expose rng state or explicit food coordinates. food location i
 ```bash
 gh issue create \
   --title "train snake jepa world model to playable rollout quality" \
-  --body-file GITHUB_ISSUE_SNAKE_JEPA.md
+  --body-file docs/snake_jepa/GITHUB_ISSUE_SNAKE_JEPA.md
 ```
 

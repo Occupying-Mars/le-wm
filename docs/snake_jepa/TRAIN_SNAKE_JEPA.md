@@ -11,7 +11,7 @@ it has `level_1`, `level_2`, `level_3`, and `random_levels` clips with `frames/*
 ## smoke test
 
 ```bash
-uv run python train_snake_jepa.py \
+uv run python -m snake_jepa.train_snake_jepa \
   --run-name snake-jepa-smoke \
   --device cpu \
   --epochs 1 \
@@ -32,7 +32,7 @@ runs/snake_jepa/snake-jepa-smoke/previews/epoch_001.png
 ## real training
 
 ```bash
-uv run python train_snake_jepa.py \
+uv run python -m snake_jepa.train_snake_jepa \
   --run-name snake-jepa-full \
   --device auto
 ```
@@ -57,7 +57,7 @@ runs/snake_jepa/<run-name>/checkpoints/
 ## play / rollout from a checkpoint
 
 ```bash
-uv run python infer_snake_jepa.py \
+uv run python -m snake_jepa.infer_snake_jepa \
   --run-name snake-jepa-full \
   --checkpoint best
 ```
