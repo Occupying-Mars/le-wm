@@ -104,6 +104,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--patch-size", type=int, default=None)
     parser.add_argument("--epochs", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=None)
+    parser.add_argument("--lr", type=float, default=None)
+    parser.add_argument("--grad-clip-norm", type=float, default=None)
     parser.add_argument("--max-clips-per-level", type=int, default=None)
     parser.add_argument("--max-windows-per-clip", type=int, default=None)
     parser.add_argument("--max-train-batches", type=int, default=None)
@@ -138,6 +140,10 @@ def load_config(args: argparse.Namespace) -> dict:
         config["epochs"] = args.epochs
     if args.batch_size is not None:
         config["batch_size"] = args.batch_size
+    if args.lr is not None:
+        config["lr"] = args.lr
+    if args.grad_clip_norm is not None:
+        config["grad_clip_norm"] = args.grad_clip_norm
     if args.max_clips_per_level is not None:
         config["max_clips_per_level"] = args.max_clips_per_level
     if args.max_windows_per_clip is not None:
