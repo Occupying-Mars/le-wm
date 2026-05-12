@@ -95,7 +95,8 @@ class SnakePatchWorldModel(nn.Module):
         history_latents: torch.Tensor,
         actions_one_hot: torch.Tensor,
     ) -> torch.Tensor:
-        return self.dynamics(history_latents, actions_one_hot)
+        next_actions_one_hot = actions_one_hot[:, -1]
+        return self.dynamics(history_latents, next_actions_one_hot)
 
     def predict_next(self, history_frames: torch.Tensor, actions_one_hot: torch.Tensor) -> dict[str, torch.Tensor]:
         history_latents = self.encode_history(history_frames)
@@ -178,15 +179,17 @@ class SpatialLatentDynamics(nn.Module):
         nn.init.trunc_normal_(self.time_embed, std=0.02)
         nn.init.trunc_normal_(self.patch_embed, std=0.02)
 
-    def forward(self, history_latents: torch.Tensor, actions_one_hot: torch.Tensor) -> torch.Tensor:
+    def forward(self, history_latents: torch.Tensor, next_actions_one_hot: torch.Tensor) -> torch.Tensor:
         if history_latents.dim() != 4:
             raise ValueError(f"expected history latents with rank 4, got {tuple(history_latents.shape)}")
         batch_size, history_size, num_patches, _ = history_latents.shape
+        if next_actions_one_hot.dim() != 2:
+            raise ValueError(f"expected next actions with rank 2, got {tuple(next_actions_one_hot.shape)}")
         if history_size != self.history_size:
             raise ValueError(f"expected history size {self.history_size}, got {history_size}")
         if num_patches != self.num_patches:
             raise ValueError(f"expected {self.num_patches} patches, got {num_patches}")
-        actions = actions_one_hot.unsqueeze(2).expand(batch_size, history_size, num_patches, -1)
+        actions = next_actions_one_hot[:, None, None, :].expand(batch_size, history_size, num_patches, -1)
         x = torch.cat([history_latents, actions], dim=-1)
         x = self.in_proj(x) + self.time_embed + self.patch_embed
         x = x.reshape(batch_size, history_size * num_patches, -1)
