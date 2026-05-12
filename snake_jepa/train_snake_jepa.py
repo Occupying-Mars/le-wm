@@ -127,6 +127,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-windows-per-clip", type=int, default=None)
     parser.add_argument("--max-train-batches", type=int, default=None)
     parser.add_argument("--max-val-batches", type=int, default=None)
+    parser.add_argument("--preview-every", type=int, default=None)
+    parser.add_argument("--checkpoint-every", type=int, default=None)
     parser.add_argument("--sigreg-weight", type=float, default=None)
     parser.add_argument("--latent-loss-weight", type=float, default=None)
     parser.add_argument("--pred-recon-loss-weight", type=float, default=None)
@@ -190,6 +192,10 @@ def load_config(args: argparse.Namespace) -> dict:
         config["max_train_batches"] = args.max_train_batches
     if args.max_val_batches is not None:
         config["max_val_batches"] = args.max_val_batches
+    if args.preview_every is not None:
+        config["preview_every"] = args.preview_every
+    if args.checkpoint_every is not None:
+        config["checkpoint_every"] = args.checkpoint_every
     if args.sigreg_weight is not None:
         config["sigreg_weight"] = args.sigreg_weight
     if args.latent_loss_weight is not None:
@@ -447,7 +453,11 @@ def board_loss(logits: torch.Tensor, target: torch.Tensor, config: dict) -> torc
         batch_size, history_size, height, width = target.shape
         logits = logits.reshape(batch_size * history_size, logits.size(2), height, width)
         target = target.reshape(batch_size * history_size, height, width)
-    return F.cross_entropy(logits, target.long(), weight=class_weights)
+    target = target.long()
+    pixel_loss = F.cross_entropy(logits, target, reduction="none")
+    pixel_weight = class_weights.gather(0, target.clamp(0, class_weights.numel() - 1).reshape(-1))
+    pixel_weight = pixel_weight.reshape_as(pixel_loss)
+    return (pixel_loss * pixel_weight).sum() / pixel_weight.sum().clamp_min(1.0)
 
 
 @torch.no_grad()
