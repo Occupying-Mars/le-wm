@@ -72,6 +72,8 @@ DEFAULT_CONFIG = {
     "wandb_enabled": False,
     "wandb_project": "snake-jepa",
     "wandb_entity": "krishnapg2315",
+    "init_checkpoint": "",
+    "freeze_autoencoder": False,
 }
 
 
@@ -123,6 +125,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pred-board-loss-weight", type=float, default=None)
     parser.add_argument("--target-board-loss-weight", type=float, default=None)
     parser.add_argument("--history-board-loss-weight", type=float, default=None)
+    parser.add_argument("--init-checkpoint", type=str, default=None)
+    parser.add_argument("--freeze-autoencoder", action="store_true")
     parser.add_argument("--wandb", action="store_true")
     return parser.parse_args()
 
@@ -178,6 +182,10 @@ def load_config(args: argparse.Namespace) -> dict:
         config["target_board_loss_weight"] = args.target_board_loss_weight
     if args.history_board_loss_weight is not None:
         config["history_board_loss_weight"] = args.history_board_loss_weight
+    if args.init_checkpoint is not None:
+        config["init_checkpoint"] = args.init_checkpoint
+    if args.freeze_autoencoder:
+        config["freeze_autoencoder"] = True
     if args.wandb:
         config["wandb_enabled"] = True
     return config
@@ -595,6 +603,31 @@ def maybe_resume(
     return start_epoch, best_val
 
 
+def load_initial_autoencoder(model: SnakePatchWorldModel, config: dict, device: torch.device) -> None:
+    checkpoint_path = str(config.get("init_checkpoint", "")).strip()
+    if not checkpoint_path:
+        return
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+    source_state = checkpoint.get("model_state", checkpoint)
+    current_state = model.state_dict()
+    selected_state = {}
+    for key, value in source_state.items():
+        if not key.startswith(("encoder.", "decoder.")):
+            continue
+        if key in current_state and current_state[key].shape == value.shape:
+            selected_state[key] = value
+    if not selected_state:
+        raise ValueError(f"no compatible encoder/decoder weights found in {checkpoint_path}")
+    model.load_state_dict(selected_state, strict=False)
+    print(f"loaded {len(selected_state)} encoder/decoder tensors from {checkpoint_path}")
+
+
+def freeze_autoencoder(model: SnakePatchWorldModel) -> None:
+    for module in (model.encoder, model.decoder):
+        for param in module.parameters():
+            param.requires_grad_(False)
+
+
 def init_wandb(config: dict):
     if not bool(config.get("wandb_enabled", False)):
         return None
@@ -638,12 +671,16 @@ def main() -> None:
     )
 
     model = SnakePatchWorldModel(make_model_config(config)).to(device)
+    load_initial_autoencoder(model, config, device)
+    if bool(config.get("freeze_autoencoder", False)):
+        freeze_autoencoder(model)
     sigreg = SIGReg(
         knots=int(config["sigreg_knots"]),
         num_proj=int(config["sigreg_num_proj"]),
     ).to(device)
+    trainable_params = [param for param in model.parameters() if param.requires_grad]
     optimizer = torch.optim.AdamW(
-        model.parameters(),
+        trainable_params,
         lr=float(config["lr"]),
         weight_decay=float(config["weight_decay"]),
     )
