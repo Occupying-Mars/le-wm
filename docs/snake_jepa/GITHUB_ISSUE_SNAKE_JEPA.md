@@ -58,6 +58,8 @@ current direction:
 - foreground-weight reconstruction loss so snake/food/walls matter more than black background
 - track wandb metrics/previews under `krishnapg2315/snake-jepa`
 
+bug found from logs/code inspection: dataset generation stores each frame after `env.step(action)`, so the action attached to a frame produced that frame. the training loader has been corrected to use the target frame's action for next-frame prediction.
+
 this keeps the implementation inside the current lewm-style encoder/dynamics/decoder code path.
 
 ## verified

@@ -85,6 +85,8 @@ global-latent experiments were not sufficient. the target reconstruction collaps
 
 the current committed direction is patch-latent reconstruction/dynamics, because it gives the decoder enough spatial information for precise board reconstruction while staying within the lewm encoder/dynamics/decoder pattern.
 
+action-alignment fix: dataset generation records each frame after `env.step(action)`, so `frame_i.action` is the action that produced `frame_i`. next-frame training must use `clip.frames[start + 1 : hist_end + 1]` for the action sequence, not `clip.frames[start:hist_end]`.
+
 latest observation: a true one-level/one-clip/one-window overfit with ordered patch decoding and `sigreg_weight=0` no longer collapses to pure black/noise, but it still is not exact enough for the win condition. it learns strong grid/border structure and sparse object colors, but not a faithful playable frame. the next blocker is high-fidelity decoding, not dataset discovery or metadata usage.
 
 decoder-first check:

@@ -142,7 +142,7 @@ class SnakeWorldUI:
             history = torch.stack(self.history_frames, dim=0).unsqueeze(0).to(self.device)
             latents = self.model.encode_history(history)[0].cpu()
         self.history_latents = [latent for latent in latents]
-        self.action_history = [frame.action for frame in clip.frames[:history_size]]
+        self.action_history = [frame.action for frame in clip.frames[1 : history_size + 1]]
         self.step_count = 0
 
     def _add_buttons(self) -> None:
@@ -180,6 +180,7 @@ class SnakeWorldUI:
     def step(self, action: int) -> None:
         self.selected_action = int(action)
         pred, pred_latent = self.predict_next(self.selected_action)
+        self.action_history[-1] = self.selected_action
         self.history_frames.append(pred)
         if pred_latent is not None:
             self.history_latents.append(pred_latent)

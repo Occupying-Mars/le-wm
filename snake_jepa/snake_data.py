@@ -146,7 +146,7 @@ class SnakeFrameDataset(Dataset):
         next_board = extract_board(clip.frames[hist_end].path)
 
         actions = torch.tensor(
-            [frame.action for frame in clip.frames[start:hist_end]],
+            [frame.action for frame in clip.frames[start + 1 : hist_end + 1]],
             dtype=torch.long,
         )
         return {
