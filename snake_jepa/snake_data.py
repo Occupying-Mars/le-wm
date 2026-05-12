@@ -162,6 +162,62 @@ class SnakeFrameDataset(Dataset):
         return sample
 
 
+class SnakeBoardDataset(Dataset):
+    def __init__(
+        self,
+        clips: list[SnakeClip],
+        *,
+        history_size: int,
+        stride: int = 1,
+        max_windows_per_clip: int = 0,
+    ) -> None:
+        super().__init__()
+        self.history_size = int(history_size)
+        self.samples: list[tuple[SnakeClip, int]] = []
+        self._board_cache: dict[Path, torch.Tensor] = {}
+
+        for clip in clips:
+            max_start = len(clip.frames) - (self.history_size + 1)
+            if max_start < 0:
+                continue
+            added = 0
+            for start in range(0, max_start + 1, max(1, int(stride))):
+                self.samples.append((clip, start))
+                added += 1
+                if max_windows_per_clip > 0 and added >= max_windows_per_clip:
+                    break
+
+        if not self.samples:
+            raise ValueError("snake board dataset is empty after windowing")
+
+    def __len__(self) -> int:
+        return len(self.samples)
+
+    def _load_board(self, path: Path) -> torch.Tensor:
+        board = self._board_cache.get(path)
+        if board is None:
+            board = extract_board(path)
+            self._board_cache[path] = board
+        return board
+
+    def __getitem__(self, index: int) -> dict[str, torch.Tensor]:
+        clip, start = self.samples[index]
+        hist_end = start + self.history_size
+        history_boards = [
+            self._load_board(frame.path) for frame in clip.frames[start:hist_end]
+        ]
+        actions = torch.tensor(
+            [frame.action for frame in clip.frames[start + 1 : hist_end + 1]],
+            dtype=torch.long,
+        )
+        return {
+            "history_boards": torch.stack(history_boards, dim=0),
+            "next_board": self._load_board(clip.frames[hist_end].path),
+            "actions": actions,
+            "actions_one_hot": F.one_hot(actions, num_classes=4).float(),
+        }
+
+
 def build_snake_loaders(
     dataset_root: str | Path,
     *,
@@ -202,6 +258,59 @@ def build_snake_loaders(
         stride=stride,
         max_windows_per_clip=max_windows_per_clip,
         include_boards=include_boards,
+    )
+
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        persistent_workers=num_workers > 0,
+    )
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        persistent_workers=num_workers > 0,
+    )
+    return train_loader, val_loader
+
+
+def build_snake_board_loaders(
+    dataset_root: str | Path,
+    *,
+    levels: list[str] | None,
+    history_size: int,
+    batch_size: int,
+    val_fraction: float,
+    num_workers: int,
+    stride: int = 1,
+    max_clips_per_level: int = 0,
+    max_windows_per_clip: int = 0,
+) -> tuple[DataLoader, DataLoader]:
+    clips = discover_snake_clips(
+        dataset_root,
+        levels=levels,
+        max_clips_per_level=max_clips_per_level,
+    )
+    split_idx = max(1, int(round(len(clips) * (1.0 - val_fraction))))
+    split_idx = min(split_idx, len(clips) - 1) if len(clips) > 1 else len(clips)
+
+    train_clips = clips[:split_idx]
+    val_clips = clips[split_idx:] if split_idx < len(clips) else clips[:1]
+
+    train_dataset = SnakeBoardDataset(
+        train_clips,
+        history_size=history_size,
+        stride=stride,
+        max_windows_per_clip=max_windows_per_clip,
+    )
+    val_dataset = SnakeBoardDataset(
+        val_clips,
+        history_size=history_size,
+        stride=stride,
+        max_windows_per_clip=max_windows_per_clip,
     )
 
     train_loader = DataLoader(
