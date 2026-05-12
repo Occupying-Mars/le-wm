@@ -69,6 +69,8 @@ DEFAULT_CONFIG = {
     "recon_chroma_value_threshold": 0.2,
     "pred_change_loss_weight": 0.0,
     "pred_change_threshold": 0.02,
+    "pred_static_loss_weight": 0.0,
+    "pred_static_dilation": 3,
     "sigreg_weight": 0.03,
     "sigreg_knots": 17,
     "sigreg_num_proj": 512,
@@ -142,6 +144,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--recon-chroma-value-threshold", type=float, default=None)
     parser.add_argument("--pred-change-loss-weight", type=float, default=None)
     parser.add_argument("--pred-change-threshold", type=float, default=None)
+    parser.add_argument("--pred-static-loss-weight", type=float, default=None)
+    parser.add_argument("--pred-static-dilation", type=int, default=None)
     parser.add_argument("--pred-board-loss-weight", type=float, default=None)
     parser.add_argument("--target-board-loss-weight", type=float, default=None)
     parser.add_argument("--history-board-loss-weight", type=float, default=None)
@@ -220,6 +224,10 @@ def load_config(args: argparse.Namespace) -> dict:
         config["pred_change_loss_weight"] = args.pred_change_loss_weight
     if args.pred_change_threshold is not None:
         config["pred_change_threshold"] = args.pred_change_threshold
+    if args.pred_static_loss_weight is not None:
+        config["pred_static_loss_weight"] = args.pred_static_loss_weight
+    if args.pred_static_dilation is not None:
+        config["pred_static_dilation"] = args.pred_static_dilation
     if args.pred_board_loss_weight is not None:
         config["pred_board_loss_weight"] = args.pred_board_loss_weight
     if args.target_board_loss_weight is not None:
@@ -343,6 +351,25 @@ def temporal_change_loss(
     return pixel_error.masked_select(change_mask.expand_as(pixel_error)).mean()
 
 
+def temporal_static_loss(
+    pred: torch.Tensor,
+    target: torch.Tensor,
+    previous: torch.Tensor,
+    config: dict,
+) -> torch.Tensor:
+    threshold = float(config.get("pred_change_threshold", 0.02))
+    change_mask = (target - previous).abs().amax(dim=-3, keepdim=True) > threshold
+    dilation = int(config.get("pred_static_dilation", 3))
+    if dilation > 1:
+        padding = dilation // 2
+        change_mask = F.max_pool2d(change_mask.float(), kernel_size=dilation, stride=1, padding=padding).bool()
+    static_mask = ~change_mask
+    if not bool(static_mask.any()):
+        return pred.new_zeros(())
+    static_error = (pred - previous).abs() + (pred - previous).square()
+    return static_error.masked_select(static_mask.expand_as(static_error)).mean()
+
+
 def board_diagnostics_enabled(config: dict) -> bool:
     return any(
         float(config.get(key, 0.0)) > 0.0
@@ -356,6 +383,12 @@ def compute_losses(output: dict[str, torch.Tensor], batch: dict[str, torch.Tenso
     target_recon_loss = reconstruction_loss(output["target_next_recon"], batch["next_frame"], config)
     history_recon_loss = reconstruction_loss(output["history_recon"], batch["history_frames"], config)
     pred_change_loss = temporal_change_loss(
+        output["pred_next_frame"],
+        batch["next_frame"],
+        batch["history_frames"][:, -1],
+        config,
+    )
+    pred_static_loss = temporal_static_loss(
         output["pred_next_frame"],
         batch["next_frame"],
         batch["history_frames"][:, -1],
@@ -380,6 +413,7 @@ def compute_losses(output: dict[str, torch.Tensor], batch: dict[str, torch.Tenso
         + float(config["target_board_loss_weight"]) * target_board_loss
         + float(config["history_board_loss_weight"]) * history_board_loss
         + float(config["pred_change_loss_weight"]) * pred_change_loss
+        + float(config["pred_static_loss_weight"]) * pred_static_loss
         + float(config["sigreg_weight"]) * sigreg_loss
     )
     return {
@@ -389,6 +423,7 @@ def compute_losses(output: dict[str, torch.Tensor], batch: dict[str, torch.Tenso
         "target_recon_loss": target_recon_loss,
         "history_recon_loss": history_recon_loss,
         "pred_change_loss": pred_change_loss,
+        "pred_static_loss": pred_static_loss,
         "pred_board_loss": pred_board_loss,
         "target_board_loss": target_board_loss,
         "history_board_loss": history_board_loss,
