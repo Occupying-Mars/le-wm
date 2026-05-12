@@ -61,6 +61,9 @@ DEFAULT_CONFIG = {
     "recon_hard_fraction": 0.0,
     "recon_batch_saliency_weight": 0.0,
     "recon_batch_saliency_threshold": 0.05,
+    "recon_chroma_weight": 0.0,
+    "recon_chroma_threshold": 0.25,
+    "recon_chroma_value_threshold": 0.2,
     "pred_change_loss_weight": 0.0,
     "pred_change_threshold": 0.02,
     "sigreg_weight": 0.03,
@@ -124,6 +127,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--recon-hard-fraction", type=float, default=None)
     parser.add_argument("--recon-batch-saliency-weight", type=float, default=None)
     parser.add_argument("--recon-batch-saliency-threshold", type=float, default=None)
+    parser.add_argument("--recon-chroma-weight", type=float, default=None)
+    parser.add_argument("--recon-chroma-threshold", type=float, default=None)
+    parser.add_argument("--recon-chroma-value-threshold", type=float, default=None)
     parser.add_argument("--pred-change-loss-weight", type=float, default=None)
     parser.add_argument("--pred-change-threshold", type=float, default=None)
     parser.add_argument("--pred-board-loss-weight", type=float, default=None)
@@ -180,6 +186,12 @@ def load_config(args: argparse.Namespace) -> dict:
         config["recon_batch_saliency_weight"] = args.recon_batch_saliency_weight
     if args.recon_batch_saliency_threshold is not None:
         config["recon_batch_saliency_threshold"] = args.recon_batch_saliency_threshold
+    if args.recon_chroma_weight is not None:
+        config["recon_chroma_weight"] = args.recon_chroma_weight
+    if args.recon_chroma_threshold is not None:
+        config["recon_chroma_threshold"] = args.recon_chroma_threshold
+    if args.recon_chroma_value_threshold is not None:
+        config["recon_chroma_value_threshold"] = args.recon_chroma_value_threshold
     if args.pred_change_loss_weight is not None:
         config["pred_change_loss_weight"] = args.pred_change_loss_weight
     if args.pred_change_threshold is not None:
@@ -259,6 +271,20 @@ def reconstruction_loss(pred: torch.Tensor, target: torch.Tensor, config: dict) 
         saliency = (flat_target - flat_target.mean(dim=0, keepdim=True)).abs().amax(dim=-3, keepdim=True)
         saliency = saliency.gt(saliency_threshold).float().reshape(*target.shape[:-3], 1, *target.shape[-2:])
         weight = weight + saliency_weight * saliency
+
+    chroma_weight = float(config.get("recon_chroma_weight", 0.0))
+    if chroma_weight > 0.0:
+        chroma_threshold = float(config.get("recon_chroma_threshold", 0.25))
+        value_threshold = float(config.get("recon_chroma_value_threshold", 0.2))
+        target_chroma = target.amax(dim=-3, keepdim=True) - target.amin(dim=-3, keepdim=True)
+        pred_chroma = pred.amax(dim=-3, keepdim=True) - pred.amin(dim=-3, keepdim=True)
+        target_value = target.amax(dim=-3, keepdim=True)
+        pred_value = pred.amax(dim=-3, keepdim=True)
+        chroma_mask = (
+            ((target_chroma > chroma_threshold) & (target_value > value_threshold))
+            | ((pred_chroma > chroma_threshold) & (pred_value > value_threshold))
+        ).float()
+        weight = weight + chroma_weight * chroma_mask
 
     l1 = ((pred - target).abs() * weight).mean()
     mse = ((pred - target).square() * weight).mean()

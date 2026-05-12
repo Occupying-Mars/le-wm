@@ -51,6 +51,9 @@ DEFAULT_CONFIG = {
     "recon_foreground_threshold": 0.08,
     "recon_batch_saliency_weight": 0.0,
     "recon_batch_saliency_threshold": 0.05,
+    "recon_chroma_weight": 0.0,
+    "recon_chroma_threshold": 0.25,
+    "recon_chroma_value_threshold": 0.2,
     "grad_clip_norm": 1.0,
     "preview_every": 1,
     "checkpoint_every": 5,
@@ -76,6 +79,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--recon-foreground-weight", type=float, default=None)
     parser.add_argument("--recon-batch-saliency-weight", type=float, default=None)
     parser.add_argument("--recon-batch-saliency-threshold", type=float, default=None)
+    parser.add_argument("--recon-chroma-weight", type=float, default=None)
+    parser.add_argument("--recon-chroma-threshold", type=float, default=None)
+    parser.add_argument("--recon-chroma-value-threshold", type=float, default=None)
     return parser.parse_args()
 
 
@@ -97,6 +103,9 @@ def load_config(args: argparse.Namespace) -> dict:
         "recon_foreground_weight",
         "recon_batch_saliency_weight",
         "recon_batch_saliency_threshold",
+        "recon_chroma_weight",
+        "recon_chroma_threshold",
+        "recon_chroma_value_threshold",
     ):
         value = getattr(args, key)
         if value is not None:
