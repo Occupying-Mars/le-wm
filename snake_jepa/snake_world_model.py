@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import torch
 from torch import nn
 
-from debug_box_world_model import LatentDynamics, TinyViTEncoder, TransformerBlock
+from debug_box_world_model import TinyViTEncoder, TransformerBlock
 from snake_jepa.snake_board import NUM_BOARD_CLASSES
 
 
@@ -43,8 +43,9 @@ class SnakePatchWorldModel(nn.Module):
             latent_dim=cfg.latent_dim,
             dropout=cfg.dropout,
         )
-        self.dynamics = LatentDynamics(
+        self.dynamics = SpatialLatentDynamics(
             history_size=cfg.history_size,
+            num_patches=self.num_patches,
             latent_dim=cfg.latent_dim,
             action_dim=cfg.action_dim,
             dim=cfg.dynamics_dim,
@@ -94,20 +95,7 @@ class SnakePatchWorldModel(nn.Module):
         history_latents: torch.Tensor,
         actions_one_hot: torch.Tensor,
     ) -> torch.Tensor:
-        batch_size, history_size, num_patches, latent_dim = history_latents.shape
-        patch_history = history_latents.permute(0, 2, 1, 3).reshape(
-            batch_size * num_patches,
-            history_size,
-            latent_dim,
-        )
-        patch_actions = actions_one_hot.unsqueeze(1).expand(
-            batch_size,
-            num_patches,
-            history_size,
-            actions_one_hot.size(-1),
-        ).reshape(batch_size * num_patches, history_size, actions_one_hot.size(-1))
-        pred = self.dynamics(patch_history, patch_actions)
-        return pred.reshape(batch_size, num_patches, latent_dim)
+        return self.dynamics(history_latents, actions_one_hot)
 
     def predict_next(self, history_frames: torch.Tensor, actions_one_hot: torch.Tensor) -> dict[str, torch.Tensor]:
         history_latents = self.encode_history(history_frames)
@@ -160,6 +148,52 @@ class SnakePatchWorldModel(nn.Module):
 
     def count_parameters(self) -> int:
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
+
+
+class SpatialLatentDynamics(nn.Module):
+    def __init__(
+        self,
+        *,
+        history_size: int,
+        num_patches: int,
+        latent_dim: int,
+        action_dim: int,
+        dim: int,
+        depth: int,
+        heads: int,
+        mlp_ratio: float,
+        dropout: float,
+    ) -> None:
+        super().__init__()
+        self.history_size = int(history_size)
+        self.num_patches = int(num_patches)
+        self.time_embed = nn.Parameter(torch.zeros(1, self.history_size, 1, dim))
+        self.patch_embed = nn.Parameter(torch.zeros(1, 1, self.num_patches, dim))
+        self.in_proj = nn.Linear(latent_dim + action_dim, dim)
+        self.blocks = nn.ModuleList(
+            [TransformerBlock(dim, heads, mlp_ratio, dropout) for _ in range(depth)]
+        )
+        self.norm = nn.LayerNorm(dim)
+        self.out_proj = nn.Linear(dim, latent_dim)
+        nn.init.trunc_normal_(self.time_embed, std=0.02)
+        nn.init.trunc_normal_(self.patch_embed, std=0.02)
+
+    def forward(self, history_latents: torch.Tensor, actions_one_hot: torch.Tensor) -> torch.Tensor:
+        if history_latents.dim() != 4:
+            raise ValueError(f"expected history latents with rank 4, got {tuple(history_latents.shape)}")
+        batch_size, history_size, num_patches, _ = history_latents.shape
+        if history_size != self.history_size:
+            raise ValueError(f"expected history size {self.history_size}, got {history_size}")
+        if num_patches != self.num_patches:
+            raise ValueError(f"expected {self.num_patches} patches, got {num_patches}")
+        actions = actions_one_hot.unsqueeze(2).expand(batch_size, history_size, num_patches, -1)
+        x = torch.cat([history_latents, actions], dim=-1)
+        x = self.in_proj(x) + self.time_embed + self.patch_embed
+        x = x.reshape(batch_size, history_size * num_patches, -1)
+        for block in self.blocks:
+            x = block(x, causal=False)
+        x = x.reshape(batch_size, history_size, num_patches, -1)
+        return self.out_proj(self.norm(x[:, -1]))
 
 
 class OrderedPatchDecoder(nn.Module):
