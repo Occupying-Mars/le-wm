@@ -54,9 +54,10 @@ current direction:
 - use `TinyViTEncoder.encode_patches` instead of only cls/global latent
 - predict next latent independently per spatial patch with action-conditioned causal `LatentDynamics`
 - decode the full predicted patch-latent grid with `OrderedPatchDecoder`
-- decode the same predicted patch-latent grid into a `20x20` board with `PatchBoardDecoder`
 - foreground-weight reconstruction loss so snake/food/walls matter more than black background
 - track wandb metrics/previews under `krishnapg2315/snake-jepa`
+
+the `PatchBoardDecoder` exists as a diagnostic path only. board loss weights default to `0`; the main path is image prediction.
 
 bug found from logs/code inspection: dataset generation stores each frame after `env.step(action)`, so the action attached to a frame produced that frame. the training loader has been corrected to use the target frame's action for next-frame prediction.
 

@@ -45,9 +45,9 @@ model design:
 - `TinyViTEncoder.encode_patches(frame)` gives one latent per spatial patch.
 - dynamics predicts the next latent for each patch from that patch's history plus the action history.
 - `OrderedPatchDecoder` decodes each ordered patch latent directly back into its image patch.
-- `PatchBoardDecoder` decodes predicted latents into a `20x20` board from labels extracted from the png pixels.
+- `PatchBoardDecoder` decodes predicted latents into a `20x20` board from labels extracted from the png pixels, but this is diagnostic-only now.
 - reconstruction loss is foreground-weighted so sparse snake/food pixels are not dominated by black background.
-- board cross-entropy is now tracked separately from pixel reconstruction.
+- board cross-entropy can be enabled separately from pixel reconstruction; board losses default to `0`.
 - board accuracy, non-empty accuracy, snake-cell accuracy, and food-cell accuracy are logged to wandb.
 
 ## smoke verification
@@ -98,7 +98,7 @@ board-decoder check:
 
 - `snake-jepa-board-overfit-one-window`: one-window JEPA overfit at `320x320` drove `pred_board_loss` from `0.8781` to `0.0011` by epoch 120.
 - pixel `pred_recon_loss` was still `0.2253`, so the current likely path is board decoding + deterministic rendering rather than relying only on raw pixel reconstruction.
-- inference now defaults to `--decode-mode board`, which rolls forward predicted latents directly, then uses learned board decoder + deterministic rendering.
+- inference now defaults back to `--decode-mode pixel`; board decoding is diagnostic-only.
 - label fix: the first board extractor over-counted cyan grid lines as snake cells. corrected extraction now classifies from the cell center area, with full-cell magenta detection for food. the pre-fix board run should be treated as invalid for final quality.
 
 wandb:

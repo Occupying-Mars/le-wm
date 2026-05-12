@@ -44,13 +44,13 @@ the default config trains a lewm-style patch-latent model with:
 - vit frame encoder
 - causal action-conditioned latent dynamics applied per spatial patch
 - ordered patch image decoder
-- picture-derived `20x20` board decoder for exact game-state decoding
 - latent prediction loss
 - predicted-frame reconstruction loss
-- predicted-board cross-entropy loss
 - target/history reconstruction losses
 - foreground-weighted reconstruction so snake/food/walls do not get averaged away
 - `SIGReg` latent regularization
+
+the picture-derived `20x20` board decoder is available only as a diagnostic path. its losses default to `0`.
 
 checkpoints are saved to:
 
@@ -90,7 +90,7 @@ the preview rows are target, reconstruction, and absolute pixel diff.
 uv run python -m snake_jepa.infer_snake_jepa \
   --run-name snake-jepa-full \
   --checkpoint best \
-  --decode-mode board
+  --decode-mode pixel
 ```
 
 controls:
@@ -99,4 +99,4 @@ controls:
 - `r`: reset to the same seed clip
 - `n`: seed from a different real dataset clip
 
-the ui starts from real context frames, then rolls forward through learned latent dynamics. `--decode-mode board` keeps the rollout in predicted-latent space and renders through the learned board decoder; `--decode-mode pixel` uses the raw image decoder.
+the ui starts from real context frames, then rolls forward through learned latent dynamics. `--decode-mode pixel` uses the raw image decoder. `--decode-mode board` is a diagnostic path only.

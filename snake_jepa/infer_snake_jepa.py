@@ -38,7 +38,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--levels", nargs="*", default=["level_1", "level_2", "level_3", "random_levels"])
     parser.add_argument("--sample-index", type=int, default=-1)
     parser.add_argument("--device", type=str, default="auto")
-    parser.add_argument("--decode-mode", choices=["board", "pixel"], default="board")
+    parser.add_argument("--decode-mode", choices=["pixel", "board"], default="pixel")
     return parser.parse_args()
 
 

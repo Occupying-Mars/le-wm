@@ -52,9 +52,9 @@ DEFAULT_CONFIG = {
     "pred_recon_loss_weight": 1.0,
     "target_recon_loss_weight": 0.5,
     "history_recon_loss_weight": 0.1,
-    "pred_board_loss_weight": 1.0,
-    "target_board_loss_weight": 0.5,
-    "history_board_loss_weight": 0.1,
+    "pred_board_loss_weight": 0.0,
+    "target_board_loss_weight": 0.0,
+    "history_board_loss_weight": 0.0,
     "recon_foreground_weight": 10.0,
     "recon_foreground_threshold": 0.08,
     "sigreg_weight": 0.03,
@@ -110,6 +110,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-val-batches", type=int, default=None)
     parser.add_argument("--sigreg-weight", type=float, default=None)
     parser.add_argument("--recon-foreground-weight", type=float, default=None)
+    parser.add_argument("--pred-board-loss-weight", type=float, default=None)
+    parser.add_argument("--target-board-loss-weight", type=float, default=None)
+    parser.add_argument("--history-board-loss-weight", type=float, default=None)
     parser.add_argument("--wandb", action="store_true")
     return parser.parse_args()
 
@@ -147,6 +150,12 @@ def load_config(args: argparse.Namespace) -> dict:
         config["sigreg_weight"] = args.sigreg_weight
     if args.recon_foreground_weight is not None:
         config["recon_foreground_weight"] = args.recon_foreground_weight
+    if args.pred_board_loss_weight is not None:
+        config["pred_board_loss_weight"] = args.pred_board_loss_weight
+    if args.target_board_loss_weight is not None:
+        config["target_board_loss_weight"] = args.target_board_loss_weight
+    if args.history_board_loss_weight is not None:
+        config["history_board_loss_weight"] = args.history_board_loss_weight
     if args.wandb:
         config["wandb_enabled"] = True
     return config
