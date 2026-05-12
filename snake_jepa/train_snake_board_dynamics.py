@@ -23,6 +23,7 @@ DEFAULT_CONFIG = {
     "seed": 7,
     "history_size": 4,
     "rollout_steps": 1,
+    "rollout_feedback": "soft",
     "batch_size": 32,
     "epochs": 50,
     "lr": 3e-4,
@@ -58,6 +59,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--epochs", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=None)
     parser.add_argument("--rollout-steps", type=int, default=None)
+    parser.add_argument("--rollout-feedback", choices=["soft", "hard"], default=None)
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--max-clips-per-level", type=int, default=None)
     parser.add_argument("--max-windows-per-clip", type=int, default=None)
@@ -85,6 +87,7 @@ def load_config(args: argparse.Namespace) -> dict:
         "epochs",
         "batch_size",
         "rollout_steps",
+        "rollout_feedback",
         "lr",
         "max_clips_per_level",
         "max_windows_per_clip",
@@ -137,6 +140,7 @@ def rollout_loss_and_logits(
     model: SnakeBoardDynamics,
     batch: dict[str, torch.Tensor],
     class_weights: torch.Tensor,
+    feedback: str,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     history = batch["history_boards"]
     target_boards = batch["target_boards"]
@@ -152,10 +156,16 @@ def rollout_loss_and_logits(
         if first_logits is None:
             first_logits = logits
         losses.append(board_loss(logits, target_boards[:, step], class_weights))
-        pred_probs = logits.softmax(dim=1)
-        if history.dim() == 4:
-            history = F.one_hot(history.long(), num_classes=model.cfg.num_classes).permute(0, 1, 4, 2, 3).float()
-        history = torch.cat([history[:, 1:], pred_probs[:, None]], dim=1)
+        if feedback == "hard":
+            pred_board = logits.argmax(dim=1)
+            if history.dim() == 5:
+                history = history.argmax(dim=2)
+            history = torch.cat([history[:, 1:], pred_board[:, None]], dim=1)
+        else:
+            pred_probs = logits.softmax(dim=1)
+            if history.dim() == 4:
+                history = F.one_hot(history.long(), num_classes=model.cfg.num_classes).permute(0, 1, 4, 2, 3).float()
+            history = torch.cat([history[:, 1:], pred_probs[:, None]], dim=1)
         action_history = torch.cat([action_history[:, 1:], target_actions[:, step : step + 1]], dim=1)
     if first_logits is None:
         raise ValueError("rollout_steps must be at least 1")
@@ -189,7 +199,7 @@ def run_epoch(model, loader, device, config, optimizer=None) -> dict[str, float]
     for step, batch in enumerate(loader, start=1):
         batch = move_batch(batch, device)
         with torch.set_grad_enabled(training):
-            loss, logits = rollout_loss_and_logits(model, batch, class_weights)
+            loss, logits = rollout_loss_and_logits(model, batch, class_weights, str(config.get("rollout_feedback", "soft")))
             if training:
                 optimizer.zero_grad(set_to_none=True)
                 loss.backward()
