@@ -11,6 +11,7 @@ from matplotlib.widgets import Button
 from PIL import Image
 
 from snake_jepa.snake_board import extract_board, render_board
+from snake_jepa.snake_board_rollout import initialize_snake_body, legalize_snake_transition
 from snake_jepa.snake_board_model import SnakeBoardDynamics, SnakeBoardDynamicsConfig
 from snake_jepa.snake_data import SnakeClip, discover_snake_clips
 
@@ -40,6 +41,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--image-size", type=int, default=320)
     parser.add_argument("--save-gif", type=str, default="")
     parser.add_argument("--steps", type=int, default=40)
+    parser.add_argument("--legalize-snake", action="store_true")
     return parser.parse_args()
 
 
@@ -92,16 +94,19 @@ class SnakeBoardUI:
         device: torch.device,
         sample_index: int,
         image_size: int,
+        legalize_snake: bool,
     ) -> None:
         self.clips = clips
         self.model = model
         self.device = device
         self.image_size = image_size
+        self.legalize_snake = bool(legalize_snake)
         self.sample_index = sample_index if sample_index >= 0 else random.randint(0, len(clips) - 1)
         self.selected_action = 1
         self.step_count = 0
         self.history_boards: list[torch.Tensor] = []
         self.action_history: list[int] = []
+        self.snake_body = initialize_snake_body([])
         self.seed_context()
 
         self.fig, self.axes = plt.subplots(1, 2, figsize=(10, 4))
@@ -117,6 +122,7 @@ class SnakeBoardUI:
             raise RuntimeError(f"clip {clip.clip_id} is too short for history_size={history_size}")
         self.history_boards = [extract_board(frame.path) for frame in clip.frames[:history_size]]
         self.action_history = [frame.action for frame in clip.frames[1 : history_size + 1]]
+        self.snake_body = initialize_snake_body(self.history_boards)
         self.step_count = 0
 
     def _add_buttons(self) -> None:
@@ -147,6 +153,13 @@ class SnakeBoardUI:
     def step(self, action: int) -> None:
         self.selected_action = int(action)
         pred = self.predict_next(self.selected_action)
+        if self.legalize_snake:
+            pred, self.snake_body, self.selected_action = legalize_snake_transition(
+                self.history_boards[-1],
+                pred,
+                self.snake_body,
+                self.selected_action,
+            )
         self.action_history[-1] = self.selected_action
         self.history_boards.append(pred)
         self.action_history.append(self.selected_action)
@@ -202,10 +215,12 @@ def save_teacher_forced_gif(
     *,
     image_size: int,
     steps: int,
+    legalize_snake: bool,
 ) -> None:
     history_size = int(model.cfg.history_size)
     boards = [extract_board(frame.path) for frame in clip.frames[:history_size]]
     actions = [frame.action for frame in clip.frames[1 : history_size + 1]]
+    snake_body = initialize_snake_body(boards)
     frames = [render_board(board, image_size) for board in boards]
     max_steps = min(int(steps), len(clip.frames) - history_size - 1)
     for offset in range(max_steps):
@@ -216,6 +231,8 @@ def save_teacher_forced_gif(
         action_tensor = torch.tensor(action_window, dtype=torch.long, device=device).unsqueeze(0)
         action_one_hot = F.one_hot(action_tensor, num_classes=4).float()
         pred = model(history, action_one_hot)[0].argmax(dim=0).cpu()
+        if legalize_snake:
+            pred, snake_body, action = legalize_snake_transition(boards[-1], pred, snake_body, action)
         boards.append(pred)
         actions[-1] = action
         actions.append(action)
@@ -241,11 +258,12 @@ def main() -> None:
             args.save_gif,
             image_size=int(args.image_size),
             steps=int(args.steps),
+            legalize_snake=bool(args.legalize_snake),
         )
         print(f"[snake-board-dyn] saved {args.save_gif}")
         return
     print("[snake-board-dyn] controls: arrow keys or wasd, r reset, n new seed")
-    SnakeBoardUI(clips, model, device, sample_index, int(args.image_size))
+    SnakeBoardUI(clips, model, device, sample_index, int(args.image_size), bool(args.legalize_snake))
     plt.show()
 
 

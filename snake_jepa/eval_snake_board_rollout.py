@@ -9,6 +9,7 @@ import torch.nn.functional as F
 
 from snake_jepa.infer_snake_board_dynamics import checkpoint_path, detect_device
 from snake_jepa.snake_board import FOOD, SNAKE, extract_board
+from snake_jepa.snake_board_rollout import initialize_snake_body, legalize_snake_transition
 from snake_jepa.snake_board_model import SnakeBoardDynamics, SnakeBoardDynamicsConfig
 from snake_jepa.snake_data import discover_snake_clips
 
@@ -24,6 +25,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-clips", type=int, default=20)
     parser.add_argument("--steps", type=int, default=20)
     parser.add_argument("--progress-every", type=int, default=25)
+    parser.add_argument("--legalize-snake", action="store_true")
     parser.add_argument("--json-out", type=str, default="")
     return parser.parse_args()
 
@@ -52,11 +54,19 @@ def update_metric(metrics: dict[str, list[float]], name: str, correct: torch.Ten
 
 
 @torch.no_grad()
-def eval_clip(model: SnakeBoardDynamics, clip, device: torch.device, steps: int) -> dict[str, list[float]]:
+def eval_clip(
+    model: SnakeBoardDynamics,
+    clip,
+    device: torch.device,
+    steps: int,
+    *,
+    legalize_snake: bool = False,
+) -> dict[str, list[float]]:
     history_size = int(model.cfg.history_size)
     boards = [extract_board(frame.path) for frame in clip.frames]
     pred_history = boards[:history_size]
     action_history = [frame.action for frame in clip.frames[1 : history_size + 1]]
+    snake_body = initialize_snake_body(pred_history)
     metrics = {
         "board_acc": [0.0, 0],
         "nonempty_acc": [0.0, 0],
@@ -74,6 +84,8 @@ def eval_clip(model: SnakeBoardDynamics, clip, device: torch.device, steps: int)
         action_tensor = torch.tensor(action_window, dtype=torch.long, device=device).unsqueeze(0)
         action_one_hot = F.one_hot(action_tensor, num_classes=4).float()
         pred = model(history, action_one_hot)[0].argmax(dim=0).cpu()
+        if legalize_snake:
+            pred, snake_body, action = legalize_snake_transition(pred_history[-1], pred, snake_body, action)
         target = boards[target_index]
         correct = pred.eq(target)
         update_metric(metrics, "board_acc", correct)
@@ -111,7 +123,10 @@ def main() -> None:
         "exact_board": [0.0, 0],
     }
     for index, clip in enumerate(clips, start=1):
-        merge_metrics(total, eval_clip(model, clip, device, int(args.steps)))
+        merge_metrics(
+            total,
+            eval_clip(model, clip, device, int(args.steps), legalize_snake=bool(args.legalize_snake)),
+        )
         progress_every = int(args.progress_every)
         if progress_every > 0 and (index == 1 or index % progress_every == 0 or index == len(clips)):
             partial = finalize(total)
@@ -123,6 +138,7 @@ def main() -> None:
     result = finalize(total)
     result["clips"] = len(clips)
     result["steps"] = int(args.steps)
+    result["legalize_snake"] = bool(args.legalize_snake)
     print(json.dumps(result, indent=2, sort_keys=True))
     if args.json_out:
         output = Path(args.json_out)
