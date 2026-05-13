@@ -1,5 +1,6 @@
 import json
 from dataclasses import dataclass
+from hashlib import sha1
 from pathlib import Path
 
 import torch
@@ -176,13 +177,17 @@ class SnakeBoardDataset(Dataset):
         stride: int = 1,
         max_windows_per_clip: int = 0,
         split_head: bool = False,
+        board_cache_dir: str | Path = "",
     ) -> None:
         super().__init__()
         self.history_size = int(history_size)
         self.rollout_steps = max(1, int(rollout_steps))
         self.split_head = bool(split_head)
+        self.board_cache_dir = Path(board_cache_dir) if board_cache_dir else None
         self.samples: list[tuple[SnakeClip, int]] = []
         self._board_cache: dict[Path, torch.Tensor] = {}
+        if self.board_cache_dir is not None:
+            self.board_cache_dir.mkdir(parents=True, exist_ok=True)
 
         for clip in clips:
             max_start = len(clip.frames) - (self.history_size + self.rollout_steps)
@@ -204,9 +209,22 @@ class SnakeBoardDataset(Dataset):
     def _load_board(self, path: Path) -> torch.Tensor:
         board = self._board_cache.get(path)
         if board is None:
-            board = extract_board(path, split_head=self.split_head)
+            cache_path = self._board_cache_path(path)
+            if cache_path is not None and cache_path.exists():
+                board = torch.load(cache_path, map_location="cpu")
+            else:
+                board = extract_board(path, split_head=self.split_head)
+                if cache_path is not None:
+                    torch.save(board, cache_path)
             self._board_cache[path] = board
         return board
+
+    def _board_cache_path(self, path: Path) -> Path | None:
+        if self.board_cache_dir is None:
+            return None
+        digest = sha1(str(path.resolve()).encode("utf-8")).hexdigest()
+        mode = "head" if self.split_head else "flat"
+        return self.board_cache_dir / f"{mode}_{digest}.pt"
 
     def __getitem__(self, index: int) -> dict[str, torch.Tensor]:
         clip, start = self.samples[index]
@@ -308,6 +326,7 @@ def build_snake_board_loaders(
     max_clips_per_level: int = 0,
     max_windows_per_clip: int = 0,
     split_head: bool = False,
+    board_cache_dir: str | Path = "",
 ) -> tuple[DataLoader, DataLoader]:
     clips = discover_snake_clips(
         dataset_root,
@@ -327,6 +346,7 @@ def build_snake_board_loaders(
         stride=stride,
         max_windows_per_clip=max_windows_per_clip,
         split_head=split_head,
+        board_cache_dir=board_cache_dir,
     )
     val_dataset = SnakeBoardDataset(
         val_clips,
@@ -335,6 +355,7 @@ def build_snake_board_loaders(
         stride=stride,
         max_windows_per_clip=max_windows_per_clip,
         split_head=split_head,
+        board_cache_dir=board_cache_dir,
     )
 
     train_loader = DataLoader(

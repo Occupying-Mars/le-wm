@@ -37,6 +37,7 @@ DEFAULT_CONFIG = {
     "depth": 8,
     "dropout": 0.0,
     "split_head": False,
+    "board_cache_dir": "",
     "class_weights": [0.1, 2.0, 10.0, 15.0],
     "grad_clip_norm": 1.0,
     "max_train_batches": 0,
@@ -72,6 +73,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hidden-dim", type=int, default=None)
     parser.add_argument("--depth", type=int, default=None)
     parser.add_argument("--split-head", action="store_true")
+    parser.add_argument("--board-cache-dir", type=str, default=None)
     parser.add_argument("--class-weights", type=float, nargs="+", default=None)
     parser.add_argument("--wandb", action="store_true")
     return parser.parse_args()
@@ -101,6 +103,7 @@ def load_config(args: argparse.Namespace) -> dict:
         "checkpoint_every",
         "hidden_dim",
         "depth",
+        "board_cache_dir",
     ):
         value = getattr(args, key)
         if value is not None:
@@ -307,6 +310,7 @@ def main() -> None:
         max_clips_per_level=int(config["max_clips_per_level"]),
         max_windows_per_clip=int(config["max_windows_per_clip"]),
         split_head=bool(config.get("split_head", False)),
+        board_cache_dir=str(config.get("board_cache_dir", "")),
     )
     model = SnakeBoardDynamics(
         SnakeBoardDynamicsConfig(
