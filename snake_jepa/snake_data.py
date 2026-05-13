@@ -39,6 +39,7 @@ def _load_clip(clip_dir: Path, level_kind: str) -> SnakeClip | None:
         return None
 
     frames: list[SnakeFrame] = []
+    previous_action: int | None = None
     for frame in meta_frames:
         if not isinstance(frame, dict):
             return None
@@ -51,6 +52,9 @@ def _load_clip(clip_dir: Path, level_kind: str) -> SnakeClip | None:
         action = int(frame.get("action", 0))
         if action < 0 or action > 3:
             action = 0
+        if bool(frame.get("ignored_action", False)) and previous_action is not None:
+            action = previous_action
+        previous_action = action
         frames.append(SnakeFrame(path=image_path, action=action))
 
     return SnakeClip(
