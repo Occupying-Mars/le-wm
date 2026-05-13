@@ -23,6 +23,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", type=str, default="auto")
     parser.add_argument("--max-clips", type=int, default=20)
     parser.add_argument("--steps", type=int, default=20)
+    parser.add_argument("--progress-every", type=int, default=25)
     parser.add_argument("--json-out", type=str, default="")
     return parser.parse_args()
 
@@ -109,8 +110,16 @@ def main() -> None:
         "food_acc": [0.0, 0],
         "exact_board": [0.0, 0],
     }
-    for clip in clips:
+    for index, clip in enumerate(clips, start=1):
         merge_metrics(total, eval_clip(model, clip, device, int(args.steps)))
+        progress_every = int(args.progress_every)
+        if progress_every > 0 and (index == 1 or index % progress_every == 0 or index == len(clips)):
+            partial = finalize(total)
+            print(
+                f"progress {index}/{len(clips)} | exact {partial['exact_board']:.3f} | "
+                f"snake {partial['snake_acc']:.3f} | food {partial['food_acc']:.3f}",
+                flush=True,
+            )
     result = finalize(total)
     result["clips"] = len(clips)
     result["steps"] = int(args.steps)
