@@ -9,7 +9,7 @@ import torch
 import torch.nn.functional as F
 from PIL import Image, ImageDraw
 
-from snake_jepa.snake_board import FOOD, SNAKE, render_board
+from snake_jepa.snake_board import FOOD, HEAD, NUM_BOARD_CLASSES_WITH_HEAD, SNAKE, render_board
 from snake_jepa.snake_board_model import SnakeBoardDynamics, SnakeBoardDynamicsConfig
 from snake_jepa.snake_data import build_snake_board_loaders
 
@@ -36,6 +36,7 @@ DEFAULT_CONFIG = {
     "hidden_dim": 128,
     "depth": 8,
     "dropout": 0.0,
+    "split_head": False,
     "class_weights": [0.1, 2.0, 10.0, 15.0],
     "grad_clip_norm": 1.0,
     "max_train_batches": 0,
@@ -70,7 +71,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checkpoint-every", type=int, default=None)
     parser.add_argument("--hidden-dim", type=int, default=None)
     parser.add_argument("--depth", type=int, default=None)
-    parser.add_argument("--class-weights", type=float, nargs=4, default=None)
+    parser.add_argument("--split-head", action="store_true")
+    parser.add_argument("--class-weights", type=float, nargs="+", default=None)
     parser.add_argument("--wandb", action="store_true")
     return parser.parse_args()
 
@@ -105,8 +107,14 @@ def load_config(args: argparse.Namespace) -> dict:
             config[key] = value
     if args.class_weights is not None:
         config["class_weights"] = list(args.class_weights)
+    if args.split_head:
+        config["split_head"] = True
     if args.wandb:
         config["wandb_enabled"] = True
+    if bool(config.get("split_head", False)):
+        config["num_classes"] = NUM_BOARD_CLASSES_WITH_HEAD
+        if len(config["class_weights"]) == 4:
+            config["class_weights"] = [*config["class_weights"], config["class_weights"][2]]
     return config
 
 
@@ -181,7 +189,7 @@ def board_metrics(logits: torch.Tensor, target: torch.Tensor) -> dict[str, tuple
     metrics = {"board_acc": (float(correct.float().mean().item()), target.numel())}
     for name, mask in {
         "nonempty_acc": target.ne(0),
-        "snake_acc": target.eq(SNAKE),
+        "snake_acc": target.eq(SNAKE) | target.eq(HEAD),
         "food_acc": target.eq(FOOD),
     }.items():
         denom = int(mask.sum().item())
@@ -298,10 +306,12 @@ def main() -> None:
         stride=int(config["stride"]),
         max_clips_per_level=int(config["max_clips_per_level"]),
         max_windows_per_clip=int(config["max_windows_per_clip"]),
+        split_head=bool(config.get("split_head", False)),
     )
     model = SnakeBoardDynamics(
         SnakeBoardDynamicsConfig(
             history_size=int(config["history_size"]),
+            num_classes=int(config.get("num_classes", 4)),
             hidden_dim=int(config["hidden_dim"]),
             depth=int(config["depth"]),
             dropout=float(config["dropout"]),

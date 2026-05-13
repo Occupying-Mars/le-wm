@@ -8,12 +8,14 @@ EMPTY = 0
 OBSTACLE = 1
 SNAKE = 2
 FOOD = 3
+HEAD = 4
 
 NUM_BOARD_CLASSES = 4
+NUM_BOARD_CLASSES_WITH_HEAD = 5
 GRID_SIZE = 20
 
 
-def extract_board(path: str | Path) -> torch.Tensor:
+def extract_board(path: str | Path, *, split_head: bool = False) -> torch.Tensor:
     with Image.open(path) as image:
         image = image.convert("RGB")
         cell_w = image.width // GRID_SIZE
@@ -24,11 +26,11 @@ def extract_board(path: str | Path) -> torch.Tensor:
                 left = x * cell_w
                 top = y * cell_h
                 patch = image.crop((left, top, left + cell_w, top + cell_h))
-                board[y, x] = classify_cell(patch)
+                board[y, x] = classify_cell(patch, split_head=split_head)
     return board
 
 
-def classify_cell(patch: Image.Image) -> int:
+def classify_cell(patch: Image.Image, *, split_head: bool = False) -> int:
     all_pixels = list(patch.getdata())
     if any(r > 180 and g < 100 and b > 120 for r, g, b in all_pixels):
         return FOOD
@@ -44,6 +46,8 @@ def classify_cell(patch: Image.Image) -> int:
         return OBSTACLE
     if max(center) < 35:
         return EMPTY
+    if split_head and g > 180 and r < 120 and b < 80:
+        return HEAD
     if g > 120 or (r > 120 and b < 120):
         return SNAKE
     return EMPTY
@@ -69,11 +73,14 @@ def render_board(board: torch.Tensor, image_size: int) -> Image.Image:
             if klass == OBSTACLE:
                 draw.rectangle((left + 1, top + 1, left + cell - 2, top + cell - 2), fill=(85, 85, 85))
             elif klass == SNAKE:
-                draw.rectangle((left + 2, top + 2, left + cell - 3, top + cell - 3), fill=(57, 255, 20))
+                fill = (255, 119, 51) if bool(board.eq(HEAD).any().item()) else (57, 255, 20)
+                draw.rectangle((left + 2, top + 2, left + cell - 3, top + cell - 3), fill=fill)
             elif klass == FOOD:
                 radius = max(2, cell // 3)
                 cx = left + cell // 2
                 cy = top + cell // 2
                 draw.ellipse((cx - radius, cy - radius, cx + radius, cy + radius), fill=(255, 16, 240))
                 draw.ellipse((cx - radius // 2, cy - radius // 2, cx + radius // 2, cy + radius // 2), fill=(255, 255, 0))
+            elif klass == HEAD:
+                draw.rectangle((left + 2, top + 2, left + cell - 3, top + cell - 3), fill=(57, 255, 20))
     return image

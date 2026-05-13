@@ -4,7 +4,7 @@ from collections import deque
 
 import torch
 
-from snake_jepa.snake_board import EMPTY, FOOD, GRID_SIZE, OBSTACLE, SNAKE
+from snake_jepa.snake_board import EMPTY, FOOD, GRID_SIZE, HEAD, OBSTACLE, SNAKE
 
 
 MOVES = {
@@ -16,7 +16,7 @@ MOVES = {
 
 
 def _snake_cells(board: torch.Tensor) -> set[tuple[int, int]]:
-    return set(map(tuple, board.eq(SNAKE).nonzero().tolist()))
+    return set(map(tuple, (board.eq(SNAKE) | board.eq(HEAD)).nonzero().tolist()))
 
 
 def _infer_head(previous: torch.Tensor, current: torch.Tensor, fallback: tuple[int, int] | None) -> tuple[int, int] | None:
@@ -77,6 +77,32 @@ def effective_action(body: deque[tuple[int, int]], requested_action: int) -> int
     return int(requested_action)
 
 
+def next_head(body: deque[tuple[int, int]], requested_action: int) -> tuple[tuple[int, int] | None, int]:
+    if not body:
+        return None, int(requested_action)
+    action = effective_action(body, int(requested_action))
+    dy, dx = MOVES[action]
+    head_y, head_x = body[-1]
+    return ((head_y + dy) % GRID_SIZE, (head_x + dx) % GRID_SIZE), action
+
+
+def terminal_transition(
+    current_board: torch.Tensor,
+    body: deque[tuple[int, int]],
+    requested_action: int,
+) -> tuple[bool, int, str]:
+    candidate, action = next_head(body, requested_action)
+    if candidate is None:
+        return False, action, ""
+    if int(current_board[candidate].item()) == OBSTACLE:
+        return True, action, "obstacle"
+    grew = int(current_board[candidate].item()) == FOOD
+    moving_tail = len(body) > 0 and candidate == body[0] and not grew
+    if candidate in body and not moving_tail:
+        return True, action, "self"
+    return False, action, ""
+
+
 def legalize_snake_transition(
     current_board: torch.Tensor,
     model_board: torch.Tensor,
@@ -86,10 +112,9 @@ def legalize_snake_transition(
     if not body:
         return model_board.clone(), body, int(requested_action)
 
-    action = effective_action(body, int(requested_action))
-    dy, dx = MOVES[action]
-    head_y, head_x = body[-1]
-    new_head = ((head_y + dy) % GRID_SIZE, (head_x + dx) % GRID_SIZE)
+    new_head, action = next_head(body, requested_action)
+    if new_head is None:
+        return model_board.clone(), body, action
     grew = int(current_board[new_head].item()) == FOOD
 
     next_body = deque(body)
@@ -126,7 +151,10 @@ def legalize_snake_transition(
 
     if food is not None and food not in next_body and int(output[food].item()) != OBSTACLE:
         output[food] = FOOD
-    for cell in next_body:
+    use_head = bool((current_board.eq(HEAD) | model_board.eq(HEAD)).any().item())
+    for cell in (list(next_body)[:-1] if use_head else next_body):
         output[cell] = SNAKE
+    if use_head and next_body:
+        output[next_body[-1]] = HEAD
 
     return output, next_body, action

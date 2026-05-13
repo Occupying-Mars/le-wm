@@ -8,7 +8,7 @@ import torch
 import torch.nn.functional as F
 
 from snake_jepa.infer_snake_board_dynamics import checkpoint_path, detect_device
-from snake_jepa.snake_board import FOOD, SNAKE, extract_board
+from snake_jepa.snake_board import FOOD, HEAD, SNAKE, extract_board
 from snake_jepa.snake_board_rollout import initialize_snake_body, legalize_snake_transition
 from snake_jepa.snake_board_model import SnakeBoardDynamics, SnakeBoardDynamicsConfig
 from snake_jepa.snake_data import discover_snake_clips
@@ -63,7 +63,8 @@ def eval_clip(
     legalize_snake: bool = False,
 ) -> dict[str, list[float]]:
     history_size = int(model.cfg.history_size)
-    boards = [extract_board(frame.path) for frame in clip.frames]
+    split_head = int(model.cfg.num_classes) > 4
+    boards = [extract_board(frame.path, split_head=split_head) for frame in clip.frames]
     pred_history = boards[:history_size]
     action_history = [frame.action for frame in clip.frames[1 : history_size + 1]]
     snake_body = initialize_snake_body(pred_history)
@@ -90,7 +91,7 @@ def eval_clip(
         correct = pred.eq(target)
         update_metric(metrics, "board_acc", correct)
         update_metric(metrics, "nonempty_acc", correct, target.ne(0))
-        update_metric(metrics, "snake_acc", correct, target.eq(SNAKE))
+        update_metric(metrics, "snake_acc", correct, target.eq(SNAKE) | target.eq(HEAD))
         update_metric(metrics, "food_acc", correct, target.eq(FOOD))
         metrics["exact_board"][0] += float(bool(correct.all()))
         metrics["exact_board"][1] += 1

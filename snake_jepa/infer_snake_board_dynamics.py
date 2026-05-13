@@ -11,7 +11,7 @@ from matplotlib.widgets import Button
 from PIL import Image
 
 from snake_jepa.snake_board import extract_board, render_board
-from snake_jepa.snake_board_rollout import initialize_snake_body, legalize_snake_transition
+from snake_jepa.snake_board_rollout import initialize_snake_body, legalize_snake_transition, terminal_transition
 from snake_jepa.snake_board_model import SnakeBoardDynamics, SnakeBoardDynamicsConfig
 from snake_jepa.snake_data import SnakeClip, discover_snake_clips
 
@@ -107,6 +107,8 @@ class SnakeBoardUI:
         self.history_boards: list[torch.Tensor] = []
         self.action_history: list[int] = []
         self.snake_body = initialize_snake_body([])
+        self.game_over = False
+        self.game_over_reason = ""
         self.seed_context()
 
         self.fig, self.axes = plt.subplots(1, 2, figsize=(10, 4))
@@ -118,11 +120,14 @@ class SnakeBoardUI:
     def seed_context(self) -> None:
         clip = self.clips[self.sample_index % len(self.clips)]
         history_size = int(self.model.cfg.history_size)
+        split_head = int(self.model.cfg.num_classes) > 4
         if len(clip.frames) <= history_size:
             raise RuntimeError(f"clip {clip.clip_id} is too short for history_size={history_size}")
-        self.history_boards = [extract_board(frame.path) for frame in clip.frames[:history_size]]
+        self.history_boards = [extract_board(frame.path, split_head=split_head) for frame in clip.frames[:history_size]]
         self.action_history = [frame.action for frame in clip.frames[1 : history_size + 1]]
         self.snake_body = initialize_snake_body(self.history_boards)
+        self.game_over = False
+        self.game_over_reason = ""
         self.step_count = 0
 
     def _add_buttons(self) -> None:
@@ -151,7 +156,21 @@ class SnakeBoardUI:
         return self.model(history, action_one_hot)[0].argmax(dim=0).cpu()
 
     def step(self, action: int) -> None:
+        if self.game_over:
+            return
         self.selected_action = int(action)
+        if self.legalize_snake:
+            game_over, effective, reason = terminal_transition(
+                self.history_boards[-1],
+                self.snake_body,
+                self.selected_action,
+            )
+            self.selected_action = effective
+            if game_over:
+                self.game_over = True
+                self.game_over_reason = reason
+                self.render()
+                return
         pred = self.predict_next(self.selected_action)
         if self.legalize_snake:
             pred, self.snake_body, self.selected_action = legalize_snake_transition(
@@ -198,9 +217,10 @@ class SnakeBoardUI:
         self.axes[1].set_title("current model board")
         self.axes[1].axis("off")
         clip = self.clips[self.sample_index % len(self.clips)]
+        state = f"GAME OVER: {self.game_over_reason}" if self.game_over else f"last action {ACTION_NAMES[self.selected_action]}"
         self.fig.suptitle(
             f"seed {clip.level_kind}/{clip.clip_id} | model steps {self.step_count} | "
-            f"last action {ACTION_NAMES[self.selected_action]}",
+            f"{state}",
             fontsize=11,
         )
         self.fig.canvas.draw_idle()
@@ -218,7 +238,8 @@ def save_teacher_forced_gif(
     legalize_snake: bool,
 ) -> None:
     history_size = int(model.cfg.history_size)
-    boards = [extract_board(frame.path) for frame in clip.frames[:history_size]]
+    split_head = int(model.cfg.num_classes) > 4
+    boards = [extract_board(frame.path, split_head=split_head) for frame in clip.frames[:history_size]]
     actions = [frame.action for frame in clip.frames[1 : history_size + 1]]
     snake_body = initialize_snake_body(boards)
     frames = [render_board(board, image_size) for board in boards]

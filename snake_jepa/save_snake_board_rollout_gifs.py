@@ -44,7 +44,8 @@ def labeled_pair(target: Image.Image, pred: Image.Image, label: str) -> Image.Im
 @torch.no_grad()
 def save_clip_gif(model, clip, device: torch.device, output: Path, *, steps: int, image_size: int, legalize_snake: bool) -> None:
     history_size = int(model.cfg.history_size)
-    boards = [extract_board(frame.path) for frame in clip.frames]
+    split_head = int(model.cfg.num_classes) > 4
+    boards = [extract_board(frame.path, split_head=split_head) for frame in clip.frames]
     pred_history = boards[:history_size]
     action_history = [frame.action for frame in clip.frames[1 : history_size + 1]]
     snake_body = initialize_snake_body(pred_history)

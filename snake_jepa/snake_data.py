@@ -175,10 +175,12 @@ class SnakeBoardDataset(Dataset):
         rollout_steps: int = 1,
         stride: int = 1,
         max_windows_per_clip: int = 0,
+        split_head: bool = False,
     ) -> None:
         super().__init__()
         self.history_size = int(history_size)
         self.rollout_steps = max(1, int(rollout_steps))
+        self.split_head = bool(split_head)
         self.samples: list[tuple[SnakeClip, int]] = []
         self._board_cache: dict[Path, torch.Tensor] = {}
 
@@ -202,7 +204,7 @@ class SnakeBoardDataset(Dataset):
     def _load_board(self, path: Path) -> torch.Tensor:
         board = self._board_cache.get(path)
         if board is None:
-            board = extract_board(path)
+            board = extract_board(path, split_head=self.split_head)
             self._board_cache[path] = board
         return board
 
@@ -305,6 +307,7 @@ def build_snake_board_loaders(
     stride: int = 1,
     max_clips_per_level: int = 0,
     max_windows_per_clip: int = 0,
+    split_head: bool = False,
 ) -> tuple[DataLoader, DataLoader]:
     clips = discover_snake_clips(
         dataset_root,
@@ -323,6 +326,7 @@ def build_snake_board_loaders(
         rollout_steps=rollout_steps,
         stride=stride,
         max_windows_per_clip=max_windows_per_clip,
+        split_head=split_head,
     )
     val_dataset = SnakeBoardDataset(
         val_clips,
@@ -330,6 +334,7 @@ def build_snake_board_loaders(
         rollout_steps=rollout_steps,
         stride=stride,
         max_windows_per_clip=max_windows_per_clip,
+        split_head=split_head,
     )
 
     train_loader = DataLoader(
