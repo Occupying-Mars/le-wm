@@ -110,6 +110,16 @@ def legalize_snake_transition(
             ),
             None,
         )
+        if food is None:
+            food = next(
+                (
+                    (y, x)
+                    for y in range(GRID_SIZE)
+                    for x in range(GRID_SIZE)
+                    if (y, x) not in next_body and int(output[y, x].item()) == EMPTY
+                ),
+                None,
+            )
     else:
         current_food = current_board.eq(FOOD).nonzero().tolist()
         food = tuple(current_food[0]) if current_food else None
