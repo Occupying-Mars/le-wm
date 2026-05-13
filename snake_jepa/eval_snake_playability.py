@@ -11,7 +11,7 @@ import torch.nn.functional as F
 
 from snake_jepa.eval_snake_board_rollout import load_model
 from snake_jepa.infer_snake_board_dynamics import detect_device
-from snake_jepa.snake_board import FOOD, HEAD, OBSTACLE, SNAKE, extract_board
+from snake_jepa.snake_board import EMPTY, FOOD, GRID_SIZE, HEAD, OBSTACLE, SNAKE, extract_board
 from snake_jepa.snake_board_rollout import initialize_snake_body, legalize_snake_transition, terminal_transition
 from snake_jepa.snake_data import discover_snake_clips
 
@@ -54,6 +54,30 @@ def board_errors(board: torch.Tensor, body: list[tuple[int, int]], *, split_head
     if split_head and int(board.eq(HEAD).sum().item()) != 1:
         errors.append("head_count")
     return errors
+
+
+def verify_terminal_checks() -> dict[str, bool]:
+    board = torch.full((GRID_SIZE, GRID_SIZE), EMPTY, dtype=torch.long)
+    board[5, 5] = SNAKE
+    board[5, 6] = SNAKE
+    board[5, 7] = HEAD
+    body = [(5, 5), (5, 6), (5, 7)]
+    obstacle_board = board.clone()
+    obstacle_board[5, 8] = OBSTACLE
+
+    obstacle_done, obstacle_action, obstacle_reason = terminal_transition(obstacle_board, body, 1)
+    self_board = torch.full((GRID_SIZE, GRID_SIZE), EMPTY, dtype=torch.long)
+    self_body = [(5, 6), (5, 7), (6, 6), (6, 7)]
+    for y, x in self_body[:-1]:
+        self_board[y, x] = SNAKE
+    self_board[self_body[-1]] = HEAD
+    self_done, self_action, self_reason = terminal_transition(self_board, self_body, 0)
+    reverse_done, reverse_action, reverse_reason = terminal_transition(board, body, 3)
+    return {
+        "obstacle": obstacle_done and obstacle_action == 1 and obstacle_reason == "obstacle",
+        "self": self_done and self_action == 0 and self_reason == "self",
+        "reverse_ignored": reverse_done is False and reverse_action == 1 and reverse_reason == "",
+    }
 
 
 @torch.no_grad()
@@ -118,8 +142,10 @@ def main() -> None:
             action_history[-1] = effective_action
             action_history.append(effective_action)
 
+    terminal_checks = verify_terminal_checks()
     result = dict(totals)
     result["ok"] = int(totals["bad_steps"]) == 0
+    result["terminal_checks"] = terminal_checks
     result["examples"] = examples
     print(json.dumps(result, indent=2, sort_keys=True))
     if args.json_out:
