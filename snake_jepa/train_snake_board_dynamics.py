@@ -58,6 +58,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--epochs", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=None)
+    parser.add_argument("--history-size", type=int, default=None)
     parser.add_argument("--rollout-steps", type=int, default=None)
     parser.add_argument("--rollout-feedback", choices=["soft", "hard"], default=None)
     parser.add_argument("--lr", type=float, default=None)
@@ -86,6 +87,7 @@ def load_config(args: argparse.Namespace) -> dict:
         "device",
         "epochs",
         "batch_size",
+        "history_size",
         "rollout_steps",
         "rollout_feedback",
         "lr",
@@ -324,7 +326,8 @@ def main() -> None:
         print(
             f"epoch {epoch:03d} | train {train_metrics['loss']:.4f} | val {val_metrics['loss']:.4f} | "
             f"board_acc {val_metrics['board_acc']:.3f} | nonempty {val_metrics['nonempty_acc']:.3f} | "
-            f"snake {val_metrics['snake_acc']:.3f} | food {val_metrics['food_acc']:.3f}"
+            f"snake {val_metrics['snake_acc']:.3f} | food {val_metrics['food_acc']:.3f}",
+            flush=True,
         )
         log_payload = {"epoch": epoch, "best_val/loss": best_val}
         log_payload.update({f"train/{key}": value for key, value in train_metrics.items()})
