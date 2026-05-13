@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from matplotlib.widgets import Button
 from PIL import Image
 
-from snake_jepa.snake_board import extract_board, render_board
+from snake_jepa.snake_board import FOOD, extract_board, render_board
 from snake_jepa.snake_board_rollout import initialize_snake_body, legalize_snake_transition, terminal_transition
 from snake_jepa.snake_board_model import SnakeBoardDynamics, SnakeBoardDynamicsConfig
 from snake_jepa.snake_data import SnakeClip, discover_snake_clips
@@ -153,7 +153,7 @@ class SnakeBoardUI:
         actions[-1] = int(action)
         action_tensor = torch.tensor(actions, dtype=torch.long, device=self.device).unsqueeze(0)
         action_one_hot = F.one_hot(action_tensor, num_classes=4).float()
-        return self.model(history, action_one_hot)[0].argmax(dim=0).cpu()
+        return self.model(history, action_one_hot)[0].cpu()
 
     def step(self, action: int) -> None:
         if self.game_over:
@@ -171,13 +171,15 @@ class SnakeBoardUI:
                 self.game_over_reason = reason
                 self.render()
                 return
-        pred = self.predict_next(self.selected_action)
+        logits = self.predict_next(self.selected_action)
+        pred = logits.argmax(dim=0)
         if self.legalize_snake:
             pred, self.snake_body, self.selected_action = legalize_snake_transition(
                 self.history_boards[-1],
                 pred,
                 self.snake_body,
                 self.selected_action,
+                food_scores=logits[FOOD],
             )
         self.action_history[-1] = self.selected_action
         self.history_boards.append(pred)
@@ -251,9 +253,16 @@ def save_teacher_forced_gif(
         action_window[-1] = action
         action_tensor = torch.tensor(action_window, dtype=torch.long, device=device).unsqueeze(0)
         action_one_hot = F.one_hot(action_tensor, num_classes=4).float()
-        pred = model(history, action_one_hot)[0].argmax(dim=0).cpu()
+        logits = model(history, action_one_hot)[0].cpu()
+        pred = logits.argmax(dim=0)
         if legalize_snake:
-            pred, snake_body, action = legalize_snake_transition(boards[-1], pred, snake_body, action)
+            pred, snake_body, action = legalize_snake_transition(
+                boards[-1],
+                pred,
+                snake_body,
+                action,
+                food_scores=logits[FOOD],
+            )
         boards.append(pred)
         actions[-1] = action
         actions.append(action)

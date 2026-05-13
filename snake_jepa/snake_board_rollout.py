@@ -108,6 +108,7 @@ def legalize_snake_transition(
     model_board: torch.Tensor,
     body: deque[tuple[int, int]],
     requested_action: int,
+    food_scores: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, deque[tuple[int, int]], int]:
     if not body:
         return model_board.clone(), body, int(requested_action)
@@ -136,15 +137,17 @@ def legalize_snake_transition(
             None,
         )
         if food is None:
-            food = next(
-                (
-                    (y, x)
-                    for y in range(GRID_SIZE)
-                    for x in range(GRID_SIZE)
-                    if (y, x) not in next_body and int(output[y, x].item()) == EMPTY
-                ),
-                None,
-            )
+            legal_cells = [
+                (y, x)
+                for y in range(GRID_SIZE)
+                for x in range(GRID_SIZE)
+                if (y, x) not in next_body and int(output[y, x].item()) == EMPTY
+            ]
+            if food_scores is not None and legal_cells:
+                scores = food_scores.detach().cpu()
+                food = max(legal_cells, key=lambda cell: float(scores[cell].item()))
+            else:
+                food = next(iter(legal_cells), None)
     else:
         current_food = current_board.eq(FOOD).nonzero().tolist()
         food = tuple(current_food[0]) if current_food else None

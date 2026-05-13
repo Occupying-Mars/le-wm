@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw
 
 from snake_jepa.eval_snake_board_rollout import load_model
 from snake_jepa.infer_snake_board_dynamics import detect_device
-from snake_jepa.snake_board import extract_board, render_board
+from snake_jepa.snake_board import FOOD, extract_board, render_board
 from snake_jepa.snake_board_rollout import initialize_snake_body, legalize_snake_transition
 from snake_jepa.snake_data import discover_snake_clips
 
@@ -59,9 +59,16 @@ def save_clip_gif(model, clip, device: torch.device, output: Path, *, steps: int
         action_window[-1] = action
         action_tensor = torch.tensor(action_window, dtype=torch.long, device=device).unsqueeze(0)
         action_one_hot = F.one_hot(action_tensor, num_classes=4).float()
-        pred = model(history, action_one_hot)[0].argmax(dim=0).cpu()
+        logits = model(history, action_one_hot)[0].cpu()
+        pred = logits.argmax(dim=0)
         if legalize_snake:
-            pred, snake_body, action = legalize_snake_transition(pred_history[-1], pred, snake_body, action)
+            pred, snake_body, action = legalize_snake_transition(
+                pred_history[-1],
+                pred,
+                snake_body,
+                action,
+                food_scores=logits[FOOD],
+            )
         target = boards[target_index]
         label = f"step {offset + 1:02d} action {action}"
         frames.append(labeled_pair(render_board(target, image_size), render_board(pred, image_size), label))

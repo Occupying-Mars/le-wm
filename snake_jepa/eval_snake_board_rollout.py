@@ -84,9 +84,16 @@ def eval_clip(
         action_window[-1] = action
         action_tensor = torch.tensor(action_window, dtype=torch.long, device=device).unsqueeze(0)
         action_one_hot = F.one_hot(action_tensor, num_classes=4).float()
-        pred = model(history, action_one_hot)[0].argmax(dim=0).cpu()
+        logits = model(history, action_one_hot)[0].cpu()
+        pred = logits.argmax(dim=0)
         if legalize_snake:
-            pred, snake_body, action = legalize_snake_transition(pred_history[-1], pred, snake_body, action)
+            pred, snake_body, action = legalize_snake_transition(
+                pred_history[-1],
+                pred,
+                snake_body,
+                action,
+                food_scores=logits[FOOD],
+            )
         target = boards[target_index]
         correct = pred.eq(target)
         update_metric(metrics, "board_acc", correct)
